@@ -138,8 +138,6 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Country, State, City } from 'country-state-city';
-import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey } from './illustrationMaps';
-import TokyoIllustrationLayer from './TokyoIllustrationLayer';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -285,6 +283,39 @@ function MapEvents({
   return null;
 }
 
+const MAP_STYLES = {
+  original: {
+    name: 'スタンダード',
+    description: '標準的な地図表示',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  },
+  paper: {
+    name: 'ペーパー',
+    description: '温かみのある紙のような質感',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  },
+  midnight: {
+    name: 'ミッドナイト',
+    description: 'コントラストの効いたダークモード',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  },
+  stylish_mono: {
+    name: 'スタイリッシュ・モノ',
+    description: 'イラストのような洗練されたモノクロデザイン',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  },
+  blueprint: {
+    name: 'ブループリント',
+    description: '設計図のような高コントラスト・デザイン',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }
+};
+
 const CATEGORY_CONFIG: Record<string, { icon: any, color: string, bg: string }> = {
   'レストラン': { icon: Utensils, color: '#000000', bg: '#FFFFFF' },
   'カフェ': { icon: Coffee, color: '#000000', bg: '#FFFFFF' },
@@ -317,7 +348,7 @@ const getCustomIcon = (category: string, mapStyle: string) => {
   const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG['その他'];
   const iconSvg = CATEGORY_ICONS_SVG[category] || CATEGORY_ICONS_SVG['その他'];
   
-  const isIllustrative = isIllustrationTheme(mapStyle as MapThemeKey);
+  const isIllustrative = mapStyle === 'stylish_mono' || mapStyle === 'blueprint';
   const bgColor = isIllustrative ? '#000000' : config.bg;
   const iconColor = isIllustrative ? '#FFFFFF' : config.color;
   const borderColor = isIllustrative ? '#000000' : 'white';
@@ -375,10 +406,10 @@ export default function App() {
   const [isFiltering, setIsFiltering] = useState(false);
   const [listFilter, setListFilter] = useState<'all' | 'favorites'>('all');
   const [isFetching, setIsFetching] = useState(false);
-  const [mapStyle, setMapStyle] = useState<MapThemeKey>(() => {
+  const [mapStyle, setMapStyle] = useState<keyof typeof MAP_STYLES>(() => {
     const saved = localStorage.getItem('milz_map_style');
-    if (saved && saved in MAP_THEMES) {
-      return saved as MapThemeKey;
+    if (saved && saved in MAP_STYLES) {
+      return saved as keyof typeof MAP_STYLES;
     }
     return 'original';
   });
@@ -391,8 +422,8 @@ export default function App() {
       html: `
         <div class="${cn(
           "w-10 h-10 flex items-center justify-center border-4 shadow-xl animate-bounce",
-          isIllustrationTheme(mapStyle)
-            ? "bg-black border-black"
+          (mapStyle === 'stylish_mono' || mapStyle === 'blueprint') 
+            ? "bg-black border-black" 
             : "bg-emerald-500 border-white"
         )}">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -407,17 +438,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('milz_map_style', mapStyle);
   }, [mapStyle]);
-
-  const activeMapTheme = MAP_THEMES[mapStyle];
-  const activeIllustrationTheme = mapStyle === 'tokyo' ? TOKYO_ILLUSTRATION_THEME : null;
-
-  useEffect(() => {
-    if (!mapRef.current || !activeIllustrationTheme) return;
-    mapRef.current.flyTo(activeIllustrationTheme.center, activeIllustrationTheme.zoom, {
-      animate: true,
-      duration: 1.2,
-    });
-  }, [activeIllustrationTheme]);
   
   const [locationFilter, setLocationFilter] = useState({
     countryCode: 'JP',
@@ -425,8 +445,7 @@ export default function App() {
     stateCode: '',
     stateName: '',
     cityCode: '',
-    cityName: '',
-    address: ''
+    cityName: ''
   });
 
   // Get lists for dropdowns
@@ -1526,7 +1545,7 @@ export default function App() {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
     const selectedCity = cities.find(c => c.name === locationFilter.cityName);
     
-    if (selectedCity && !locationFilter.address) {
+    if (selectedCity) {
       const lat = parseFloat(selectedCity.latitude || '');
       const lng = parseFloat(selectedCity.longitude || '');
       if (!isNaN(lat) && !isNaN(lng)) {
@@ -1536,8 +1555,8 @@ export default function App() {
       }
     }
 
-    const { countryName, stateName, cityName, address } = locationFilter;
-    const fullAddress = `${countryName} ${stateName} ${cityName} ${address}`.trim();
+    const { countryName, stateName, cityName } = locationFilter;
+    const fullAddress = `${countryName} ${stateName} ${cityName}`.trim();
     if (!fullAddress) return;
 
     setAiLoading(true);
@@ -1976,7 +1995,7 @@ export default function App() {
                       : (
                         <div className="relative">
                           <SlidersHorizontal className="w-5 h-5" />
-                          {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || locationFilter.address !== '' || selectedCategory !== 'all') && (
+                          {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || selectedCategory !== 'all') && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-black rounded-full border-2 border-white" />
                           )}
                         </div>
@@ -2098,14 +2117,6 @@ export default function App() {
                             ))}
                           </select>
                         </div>
-
-                        <input
-                          type="text"
-                          placeholder="Detailed Address (Optional)"
-                          value={locationFilter.address}
-                          onChange={(e) => setLocationFilter(prev => ({ ...prev, address: e.target.value }))}
-                          className="w-full px-4 py-4 bg-stone-50 border border-stone-200 text-sm focus:outline-none font-medium"
-                        />
                         <button
                           onClick={() => {
                             setLocationFilter({ 
@@ -2114,8 +2125,7 @@ export default function App() {
                               stateCode: '', 
                               stateName: '', 
                               cityCode: '', 
-                              cityName: '', 
-                              address: '' 
+                              cityName: '' 
                             });
                             setIsFiltering(false);
                           }}
@@ -2142,15 +2152,19 @@ export default function App() {
               <MapContainer 
                 center={TOKYO_CENTER} 
                 zoom={DEFAULT_ZOOM} 
-                className={cn("h-full w-full transition-all duration-700", activeIllustrationTheme && "map-mode-tokyo")}
+                className={cn(
+                  "h-full w-full transition-all duration-700",
+                  mapStyle === 'stylish_mono' && "contrast-[1.1] brightness-[1.02]",
+                  mapStyle === 'blueprint' && "contrast-[1.5] brightness-[0.95] invert-[0.02]",
+                  mapStyle === 'paper' && "sepia-[0.2] saturate-[0.9] contrast-[1.05]",
+                  mapStyle === 'midnight' && "brightness-[0.8] contrast-[1.1] saturate-[0.6]"
+                )}
                 zoomControl={false}
               >
                 <TileLayer
-                  attribution={activeMapTheme.attribution}
-                  url={activeMapTheme.url}
-                  opacity={activeIllustrationTheme ? 0.96 : 1}
+                  attribution={MAP_STYLES[mapStyle]?.attribution || MAP_STYLES.original.attribution}
+                  url={MAP_STYLES[mapStyle]?.url || MAP_STYLES.original.url}
                 />
-                {activeIllustrationTheme && <TokyoIllustrationLayer />}
                 <MapEvents 
                   user={user}
                   role={role}
@@ -2251,19 +2265,6 @@ export default function App() {
                   />
                 )}
               </MapContainer>
-
-              {activeIllustrationTheme && (
-                <div className="absolute left-6 bottom-[8.5rem] z-[500] pointer-events-none">
-                  <div className="max-w-[280px] rounded-3xl border border-white/70 bg-white/88 px-5 py-4 shadow-2xl backdrop-blur-md">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Palette className="w-4 h-4 text-black" />
-                      <div className="text-[9px] font-black uppercase tracking-[0.3em] text-stone-500">Illustration Mode</div>
-                    </div>
-                    <div className="text-sm font-black text-black tracking-wide">{activeIllustrationTheme.name}</div>
-                    <div className="mt-1 text-[10px] leading-relaxed text-stone-500">{activeIllustrationTheme.description}</div>
-                  </div>
-                </div>
-              )}
             </motion.div>
           )}
 
@@ -2456,8 +2457,7 @@ export default function App() {
                                 stateCode: region.state,
                                 stateName: s?.name || '',
                                 cityCode: region.city,
-                                cityName: region.city,
-                                address: ''
+                                cityName: region.city
                               });
                             }}
                             className={cn(
@@ -2543,17 +2543,6 @@ export default function App() {
                               <option key={c.name} value={c.name}>{c.name}</option>
                             ))}
                           </select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">住所・ランドマーク（任意）</label>
-                          <input
-                            type="text"
-                            placeholder="住所・ランドマーク（任意）"
-                            value={locationFilter.address}
-                            onChange={(e) => setLocationFilter(prev => ({ ...prev, address: e.target.value }))}
-                            className="w-full px-8 py-5 bg-stone-50 border border-stone-100 rounded-[1.5rem] outline-none focus:border-black font-bold text-sm"
-                          />
                         </div>
                       </div>
                     </div>
@@ -2649,7 +2638,6 @@ export default function App() {
                             {[locationFilter.countryName, locationFilter.stateName, locationFilter.cityName]
                               .filter(Boolean)
                               .join(' ') || 'Worldwide'}
-                            {locationFilter.address && ` - ${locationFilter.address}`}
                           </p>
                         </div>
                       </div>
@@ -2706,42 +2694,29 @@ export default function App() {
                 <div className="space-y-4 text-left">
                   <div className="flex items-center gap-2 px-1">
                     <MapIcon className="w-4 h-4 text-stone-400" />
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Theme Settings</span>
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Style Settings</span>
                   </div>
-                  <div className="space-y-4">
-                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Original + Tokyo Hybrid View</div>
-                    <div className="grid grid-cols-2 gap-4">
-                      {(Object.keys(MAP_THEMES) as MapThemeKey[]).map((styleKey) => (
-                        <button
-                          key={styleKey}
-                          onClick={() => setMapStyle(styleKey)}
-                          className={cn(
-                            "p-6 border rounded-xl transition-all text-left space-y-2",
-                            mapStyle === styleKey 
-                              ? "border-black bg-black text-white shadow-xl" 
-                              : "border-stone-200 bg-white text-black hover:border-black"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="font-black text-xs uppercase tracking-widest">{MAP_THEMES[styleKey].name}</div>
-                            {isIllustrationTheme(styleKey) && (
-                              <span className={cn(
-                                "px-2.5 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.25em]",
-                                mapStyle === styleKey ? "bg-white/15 text-white" : "bg-stone-100 text-stone-500"
-                              )}>
-                                tokyo
-                              </span>
-                            )}
-                          </div>
-                          <div className={cn(
-                            "text-[9px] font-medium leading-tight uppercase tracking-tighter",
-                            mapStyle === styleKey ? "text-stone-300" : "text-stone-400"
-                          )}>
-                            {MAP_THEMES[styleKey].description}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {(Object.keys(MAP_STYLES) as Array<keyof typeof MAP_STYLES>).map((styleKey) => (
+                      <button
+                        key={styleKey}
+                        onClick={() => setMapStyle(styleKey)}
+                        className={cn(
+                          "p-6 border rounded-xl transition-all text-left space-y-2",
+                          mapStyle === styleKey 
+                            ? "border-black bg-black text-white shadow-xl" 
+                            : "border-stone-200 bg-white text-black hover:border-black"
+                        )}
+                      >
+                        <div className="font-black text-xs uppercase tracking-widest">{MAP_STYLES[styleKey].name}</div>
+                        <div className={cn(
+                          "text-[9px] font-medium leading-tight uppercase tracking-tighter",
+                          mapStyle === styleKey ? "text-stone-400" : "text-stone-400"
+                        )}>
+                          {MAP_STYLES[styleKey].description}
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
