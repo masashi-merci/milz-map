@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, ImageOverlay, Pane, useMapEvents, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { getSupabase, testSupabaseConnection, resetSupabaseClient } from './supabase';
 import { 
@@ -138,7 +138,8 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Country, State, City } from 'country-state-city';
-import { MAP_THEMES, isIllustrationTheme, type MapThemeKey } from './illustrationMaps';
+import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey } from './illustrationMaps';
+import TokyoIllustrationLayer from './TokyoIllustrationLayer';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -408,7 +409,7 @@ export default function App() {
   }, [mapStyle]);
 
   const activeMapTheme = MAP_THEMES[mapStyle];
-  const activeIllustrationTheme = isIllustrationTheme(mapStyle) ? MAP_THEMES[mapStyle] : null;
+  const activeIllustrationTheme = mapStyle === 'tokyo' ? TOKYO_ILLUSTRATION_THEME : null;
 
   useEffect(() => {
     if (!mapRef.current || !activeIllustrationTheme) return;
@@ -2141,23 +2142,15 @@ export default function App() {
               <MapContainer 
                 center={TOKYO_CENTER} 
                 zoom={DEFAULT_ZOOM} 
-                className="h-full w-full transition-all duration-700"
+                className={cn("h-full w-full transition-all duration-700", activeIllustrationTheme && "map-mode-tokyo")}
                 zoomControl={false}
               >
                 <TileLayer
                   attribution={activeMapTheme.attribution}
                   url={activeMapTheme.url}
-                  opacity={activeIllustrationTheme ? 0.14 : 1}
+                  opacity={activeIllustrationTheme ? 0.96 : 1}
                 />
-                {activeIllustrationTheme && (
-                  <Pane name="illustration-pane" style={{ zIndex: 250 }}>
-                    <ImageOverlay
-                      url={activeIllustrationTheme.imageUrl}
-                      bounds={activeIllustrationTheme.bounds}
-                      opacity={0.96}
-                    />
-                  </Pane>
-                )}
+                {activeIllustrationTheme && <TokyoIllustrationLayer />}
                 <MapEvents 
                   user={user}
                   role={role}
@@ -2716,7 +2709,7 @@ export default function App() {
                     <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Theme Settings</span>
                   </div>
                   <div className="space-y-4">
-                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Original + Limited Illustration Maps</div>
+                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Original + Tokyo Hybrid View</div>
                     <div className="grid grid-cols-2 gap-4">
                       {(Object.keys(MAP_THEMES) as MapThemeKey[]).map((styleKey) => (
                         <button
@@ -2736,7 +2729,7 @@ export default function App() {
                                 "px-2.5 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.25em]",
                                 mapStyle === styleKey ? "bg-white/15 text-white" : "bg-stone-100 text-stone-500"
                               )}>
-                                limited
+                                tokyo
                               </span>
                             )}
                           </div>
