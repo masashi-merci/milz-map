@@ -2243,18 +2243,6 @@ export default function App() {
                 )}
               </MapContainer>
 
-              {activeIllustrationTheme && (
-                <div className="absolute left-6 bottom-[8.5rem] z-[500] pointer-events-none">
-                  <div className="max-w-[280px] rounded-3xl border border-white/70 bg-white/88 px-5 py-4 shadow-2xl backdrop-blur-md">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Palette className="w-4 h-4 text-black" />
-                      <div className="text-[9px] font-black uppercase tracking-[0.3em] text-stone-500">Illustration Mode</div>
-                    </div>
-                    <div className="text-sm font-black text-black tracking-wide">{activeIllustrationTheme.name}</div>
-                    <div className="mt-1 text-[10px] leading-relaxed text-stone-500">{activeIllustrationTheme.description}</div>
-                  </div>
-                </div>
-              )}
             </motion.div>
           )}
 

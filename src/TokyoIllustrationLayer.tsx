@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Circle, CircleMarker, ImageOverlay, Marker, Pane, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
+import { useState } from 'react';
+import { Circle, ImageOverlay, Pane, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import { TOKYO_ILLUSTRATION_THEME } from './illustrationMaps';
 
 const TOKYO_PRIMARY_ROUTE: [number, number][] = [
@@ -39,36 +38,8 @@ const TOKYO_PARKS = [
   { center: [35.6254, 139.7757] as [number, number], radius: 720 },
 ];
 
-const DISTRICT_LABELS = [
-  { position: [35.6938, 139.7034] as [number, number], title: 'SHINJUKU', subtitle: 'Transit + Business', tone: 'district' },
-  { position: [35.6595, 139.7005] as [number, number], title: 'SHIBUYA', subtitle: 'Creative + Dining', tone: 'district' },
-  { position: [35.6812, 139.7671] as [number, number], title: 'TOKYO STATION', subtitle: 'Gateway', tone: 'station' },
-  { position: [35.6717, 139.7650] as [number, number], title: 'GINZA', subtitle: 'Retail + Culture', tone: 'district' },
-  { position: [35.7138, 139.7770] as [number, number], title: 'UENO', subtitle: 'Museum + Park', tone: 'district' },
-  { position: [35.6274, 139.7768] as [number, number], title: 'ODAIBA', subtitle: 'Waterfront', tone: 'district' },
-];
-
-const DETAIL_LABELS = [
-  { position: [35.6852, 139.7528] as [number, number], title: 'IMPERIAL', subtitle: 'Gardens', tone: 'detail' },
-  { position: [35.6680, 139.7414] as [number, number], title: 'ROPPONGI', subtitle: 'Arts', tone: 'detail' },
-  { position: [35.7100, 139.8107] as [number, number], title: 'SKYTREE', subtitle: 'Landmark', tone: 'detail' },
-  { position: [35.7148, 139.7967] as [number, number], title: 'ASAKUSA', subtitle: 'Historic', tone: 'detail' },
-  { position: [35.6660, 139.7708] as [number, number], title: 'TSUKIJI', subtitle: 'Food', tone: 'detail' },
-  { position: [35.6550, 139.7953] as [number, number], title: 'TOYOSU', subtitle: 'Bay Area', tone: 'detail' },
-];
-
-const STATION_DOTS = [
-  [35.6938, 139.7034],
-  [35.6896, 139.7304],
-  [35.6907, 139.7495],
-  [35.6812, 139.7671],
-  [35.6717, 139.7650],
-  [35.6595, 139.7005],
-  [35.7138, 139.7770],
-  [35.6274, 139.7768],
-] as [number, number][];
-
-const svgToDataUri = (svg: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/\n\s+/g, ' ').trim())}`;
+const svgToDataUri = (svg: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/
+\s+/g, ' ').trim())}`;
 
 const TOKYO_WASH_URL = svgToDataUri(`
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
@@ -100,27 +71,6 @@ const TOKYO_WASH_URL = svgToDataUri(`
   </g>
 </svg>`);
 
-type Tone = 'district' | 'station' | 'detail';
-
-const createTokyoChipIcon = (title: string, subtitle: string, tone: Tone, zoom: number) => {
-  const sizeClass = zoom >= 14 ? 'tokyo-chip--compact' : zoom >= 12.5 ? 'tokyo-chip--mid' : 'tokyo-chip--far';
-
-  return L.divIcon({
-    className: 'tokyo-chip-icon',
-    iconSize: [160, 64],
-    iconAnchor: tone === 'station' ? [80, 34] : [72, 36],
-    html: `
-      <div class="tokyo-chip tokyo-chip--${tone} ${sizeClass}">
-        <div class="tokyo-chip__dot"></div>
-        <div class="tokyo-chip__content">
-          <div class="tokyo-chip__title">${title}</div>
-          <div class="tokyo-chip__subtitle">${subtitle}</div>
-        </div>
-      </div>
-    `,
-  });
-};
-
 export default function TokyoIllustrationLayer() {
   const map = useMap();
   const [zoom, setZoom] = useState(map.getZoom());
@@ -133,24 +83,6 @@ export default function TokyoIllustrationLayer() {
       setZoom(map.getZoom());
     },
   });
-
-  const districtIcons = useMemo(() => {
-    return DISTRICT_LABELS.map((item) => ({
-      ...item,
-      icon: createTokyoChipIcon(item.title, item.subtitle, item.tone as Tone, zoom),
-    }));
-  }, [zoom]);
-
-  const detailIcons = useMemo(() => {
-    return DETAIL_LABELS.map((item) => ({
-      ...item,
-      icon: createTokyoChipIcon(item.title, item.subtitle, 'detail', zoom),
-    }));
-  }, [zoom]);
-
-  const showDistrictLabels = zoom <= 13.6;
-  const showDetailLabels = zoom >= 12.8;
-  const showStationDots = zoom >= 11.8;
 
   const primaryWeight = zoom >= 14 ? 8 : zoom >= 12 ? 10 : 12;
   const secondaryWeight = zoom >= 14 ? 6 : zoom >= 12 ? 8 : 10;
@@ -218,47 +150,6 @@ export default function TokyoIllustrationLayer() {
             dashArray: zoom >= 14 ? '2 10' : '3 14',
           }}
         />
-      </Pane>
-
-      <Pane name="tokyo-station-pane" style={{ zIndex: 270, pointerEvents: 'none' }}>
-        {showStationDots &&
-          STATION_DOTS.map((position, index) => (
-            <CircleMarker
-              key={`station-${index}`}
-              center={position}
-              radius={zoom >= 14 ? 6 : 7}
-              pathOptions={{
-                color: '#22312b',
-                weight: 2,
-                fillColor: '#f8f4ea',
-                fillOpacity: 1,
-              }}
-            />
-          ))}
-      </Pane>
-
-      <Pane name="tokyo-label-pane" style={{ zIndex: 280, pointerEvents: 'none' }}>
-        {showDistrictLabels &&
-          districtIcons.map((item) => (
-            <Marker
-              key={item.title}
-              position={item.position}
-              icon={item.icon}
-              interactive={false}
-              keyboard={false}
-            />
-          ))}
-
-        {showDetailLabels &&
-          detailIcons.map((item) => (
-            <Marker
-              key={item.title}
-              position={item.position}
-              icon={item.icon}
-              interactive={false}
-              keyboard={false}
-            />
-          ))}
       </Pane>
     </>
   );
