@@ -1,273 +1,145 @@
 import { useMemo, useState } from 'react';
-import { Circle, ImageOverlay, Marker, Pane, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
+import { Circle, ImageOverlay, Pane, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
 import { TOKYO_ILLUSTRATION_THEME } from './illustrationMaps';
 
-type LatLng = [number, number];
+const TOKYO_PRIMARY_ROUTE: [number, number][] = [
+  [35.6938, 139.7034],
+  [35.6896, 139.7304],
+  [35.6907, 139.7495],
+  [35.6812, 139.7671],
+  [35.6762, 139.7603],
+  [35.6717, 139.765],
+  [35.666, 139.7708],
+  [35.655, 139.7953],
+];
 
-type BlockStyle = 'downtown' | 'civic' | 'garden' | 'waterfront' | 'compact';
+const TOKYO_SECONDARY_ROUTE: [number, number][] = [
+  [35.6595, 139.7005],
+  [35.6655, 139.7293],
+  [35.668, 139.7414],
+  [35.6639, 139.758],
+  [35.658, 139.7782],
+  [35.6274, 139.7768],
+];
 
-interface BlockSpec {
-  id: string;
-  position: LatLng;
-  width: number;
-  height: number;
-  anchor?: [number, number];
-  style: BlockStyle;
-  scale?: number;
-}
+const TOKYO_NORTHERN_ROUTE: [number, number][] = [
+  [35.7138, 139.777],
+  [35.7061, 139.7745],
+  [35.6942, 139.7679],
+  [35.6812, 139.7671],
+  [35.6735, 139.7638],
+  [35.6678, 139.7941],
+  [35.6274, 139.7768],
+];
 
-const svgToDataUri = (svg: string) =>
-  `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/\s+/g, ' ').trim())}`;
+const TOKYO_PARKS = [
+  { center: [35.6852, 139.7528] as [number, number], radius: 1200 },
+  { center: [35.6727, 139.6949] as [number, number], radius: 980 },
+  { center: [35.7156, 139.7745] as [number, number], radius: 820 },
+  { center: [35.6254, 139.7757] as [number, number], radius: 720 },
+];
+
+const TOKYO_WATER = [
+  { center: [35.659, 139.779] as [number, number], radius: 1600 },
+  { center: [35.628, 139.788] as [number, number], radius: 1800 },
+];
+
+const TOKYO_DISTRICT_MASS_URL = svgToDataUri(`
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#24312c" flood-opacity="0.12"/>
+    </filter>
+    <linearGradient id="topStone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f2ead8"/>
+      <stop offset="100%" stop-color="#e4dcc8"/>
+    </linearGradient>
+    <linearGradient id="topSage" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dbe4cf"/>
+      <stop offset="100%" stop-color="#c8d5bf"/>
+    </linearGradient>
+    <linearGradient id="topSlate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d7e3e4"/>
+      <stop offset="100%" stop-color="#c2d1d2"/>
+    </linearGradient>
+  </defs>
+
+  <g filter="url(#shadow)" opacity="0.78">
+    <g transform="translate(300 420)">
+      ${renderCluster('#e6d9bf', '#cabf9f', '#b4aa8e')}
+    </g>
+    <g transform="translate(540 505) scale(1.1)">
+      ${renderCluster('#d0ddc3', '#b8c8ab', '#93a98b')}
+    </g>
+    <g transform="translate(760 445) scale(1.08)">
+      ${renderCluster('#d7e1e2', '#c1cfd0', '#92a6aa')}
+    </g>
+    <g transform="translate(1015 610) scale(0.95)">
+      ${renderCluster('#ead5bd', '#d8bea1', '#b6987c')}
+    </g>
+    <g transform="translate(1040 300) scale(0.92)">
+      ${renderCluster('#d8e2ce', '#c0cfb5', '#98ac8e')}
+    </g>
+    <g transform="translate(350 740) scale(0.9)">
+      ${renderCluster('#d7e1e2', '#c1cfd0', '#92a6aa')}
+    </g>
+  </g>
+</svg>`);
 
 const TOKYO_WASH_URL = svgToDataUri(`
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1400" viewBox="0 0 1800 1400">
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
   <defs>
-    <filter id="blur1" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="32" /></filter>
-    <filter id="blur2" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="18" /></filter>
+    <filter id="blur1" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="48" />
+    </filter>
     <pattern id="paper" width="160" height="160" patternUnits="userSpaceOnUse">
-      <circle cx="18" cy="30" r="2.4" fill="#ffffff" fill-opacity="0.32"/>
-      <circle cx="118" cy="74" r="1.6" fill="#1c2622" fill-opacity="0.05"/>
-      <circle cx="65" cy="124" r="1.5" fill="#ffffff" fill-opacity="0.18"/>
-      <circle cx="136" cy="142" r="1.1" fill="#1c2622" fill-opacity="0.04"/>
+      <circle cx="22" cy="30" r="2" fill="#ffffff" fill-opacity="0.28"/>
+      <circle cx="116" cy="78" r="1.6" fill="#20312c" fill-opacity="0.05"/>
+      <circle cx="62" cy="126" r="1.5" fill="#ffffff" fill-opacity="0.16"/>
+      <circle cx="136" cy="140" r="1.1" fill="#20312c" fill-opacity="0.04"/>
     </pattern>
   </defs>
-  <rect width="1800" height="1400" fill="#f8f5ed"/>
-  <rect width="1800" height="1400" fill="url(#paper)" opacity="0.88"/>
-  <g filter="url(#blur1)" opacity="0.36">
-    <ellipse cx="370" cy="260" rx="290" ry="180" fill="#d5e5e1"/>
-    <ellipse cx="1320" cy="300" rx="290" ry="210" fill="#d7e0c8"/>
-    <ellipse cx="560" cy="960" rx="380" ry="210" fill="#f0d5a4"/>
-    <ellipse cx="1290" cy="930" rx="360" ry="250" fill="#cfe1e5"/>
+  <rect width="1600" height="1200" fill="#f6f3ea" fill-opacity="0.16"/>
+  <rect width="1600" height="1200" fill="url(#paper)" opacity="0.95"/>
+  <g filter="url(#blur1)" opacity="0.34">
+    <ellipse cx="340" cy="250" rx="240" ry="160" fill="#bfd6d8"/>
+    <ellipse cx="1190" cy="300" rx="260" ry="180" fill="#c2d7b0"/>
+    <ellipse cx="520" cy="840" rx="300" ry="190" fill="#ead19d"/>
+    <ellipse cx="1220" cy="860" rx="330" ry="220" fill="#bfd6d8"/>
   </g>
-  <g filter="url(#blur2)" opacity="0.32">
-    <path d="M190 390 C 420 300, 620 320, 830 415 S 1210 560, 1580 510" fill="none" stroke="#d8a45a" stroke-width="76" stroke-linecap="round"/>
-    <path d="M180 860 C 450 710, 640 725, 860 800 S 1220 910, 1600 800" fill="none" stroke="#9cb9c4" stroke-width="84" stroke-linecap="round"/>
-  </g>
-</svg>`);
-
-const TOKYO_BAY_PATCH = svgToDataUri(`
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
-  <defs>
-    <filter id="blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="10" /></filter>
-  </defs>
-  <g opacity="0.9">
-    <path d="M1030 250 C 1200 210, 1400 260, 1510 410 C 1570 490, 1570 620, 1510 720 C 1385 900, 1120 910, 950 760 C 820 650, 780 500, 820 380 C 860 300, 930 260, 1030 250 Z" fill="#cae3e8"/>
-    <path d="M1060 300 C 1200 270, 1360 310, 1450 430 C 1500 500, 1500 600, 1455 675 C 1360 835, 1125 845, 990 720 C 885 620, 855 515, 885 425 C 915 350, 975 315, 1060 300 Z" fill="#e3f0f3" opacity="0.85"/>
-    <path d="M1080 355 C 1210 330, 1340 360, 1410 455" fill="none" stroke="#ffffff" stroke-opacity="0.68" stroke-width="14" stroke-linecap="round" filter="url(#blur)"/>
-    <path d="M1010 620 C 1130 660, 1260 660, 1370 620" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="12" stroke-linecap="round" filter="url(#blur)"/>
+  <g opacity="0.28">
+    <path d="M210 375 C 420 290, 615 315, 790 390 S 1135 515, 1385 470" fill="none" stroke="#dd9d37" stroke-width="56" stroke-linecap="round"/>
+    <path d="M245 710 C 455 610, 610 615, 815 670 S 1135 790, 1360 708" fill="none" stroke="#90b2be" stroke-width="62" stroke-linecap="round"/>
   </g>
 </svg>`);
 
-const PRIMARY_ROADS: LatLng[][] = [
-  [
-    [35.6948, 139.7000],
-    [35.6922, 139.7182],
-    [35.6899, 139.7366],
-    [35.6842, 139.7548],
-    [35.6775, 139.7708],
-    [35.6670, 139.7878],
-    [35.6543, 139.7985],
-  ],
-  [
-    [35.6592, 139.6988],
-    [35.6642, 139.7132],
-    [35.6698, 139.7302],
-    [35.6755, 139.7470],
-    [35.6812, 139.7671],
-    [35.6880, 139.7870],
-    [35.6982, 139.8120],
-  ],
-  [
-    [35.7148, 139.7738],
-    [35.7055, 139.7718],
-    [35.6932, 139.7699],
-    [35.6812, 139.7671],
-    [35.6717, 139.7646],
-    [35.6635, 139.7668],
-  ],
-];
+function renderCluster(top: string, side: string, shadow: string) {
+  const blocks = [
+    { x: 0, y: 42, w: 86, h: 42, d: 20 },
+    { x: 92, y: 14, w: 74, h: 36, d: 18 },
+    { x: 170, y: 60, w: 66, h: 32, d: 16 },
+    { x: 60, y: 86, w: 108, h: 50, d: 22 },
+    { x: 190, y: 102, w: 58, h: 28, d: 14 },
+    { x: 145, y: -18, w: 42, h: 70, d: 18 },
+  ];
 
-const SECONDARY_ROADS: LatLng[][] = [
-  [
-    [35.6925, 139.7065],
-    [35.6878, 139.7250],
-    [35.6830, 139.7420],
-    [35.6788, 139.7588],
-  ],
-  [
-    [35.6685, 139.7002],
-    [35.6712, 139.7200],
-    [35.6718, 139.7400],
-    [35.6702, 139.7605],
-    [35.6662, 139.7800],
-  ],
-  [
-    [35.6760, 139.7590],
-    [35.6675, 139.7725],
-    [35.6598, 139.7860],
-    [35.6508, 139.7990],
-  ],
-  [
-    [35.7125, 139.7780],
-    [35.7078, 139.7920],
-    [35.7062, 139.8060],
-  ],
-];
+  return blocks
+    .map(({ x, y, w, h, d }) => {
+      const topPoly = `${x},${y} ${x + w},${y} ${x + w + d},${y + d} ${x + d},${y + d}`;
+      const rightPoly = `${x + w},${y} ${x + w + d},${y + d} ${x + w + d},${y + h + d} ${x + w},${y + h}`;
+      const frontPoly = `${x},${y} ${x + d},${y + d} ${x + d},${y + h + d} ${x},${y + h}`;
+      return `
+        <polygon points="${frontPoly}" fill="${side}" opacity="0.92"/>
+        <polygon points="${rightPoly}" fill="${shadow}" opacity="0.92"/>
+        <polygon points="${topPoly}" fill="${top}" opacity="0.96"/>
+      `;
+    })
+    .join('');
+}
 
-const PARK_PATCHES = [
-  { center: [35.6852, 139.7528] as LatLng, radius: 1350 },
-  { center: [35.6727, 139.6949] as LatLng, radius: 1080 },
-  { center: [35.7192, 139.7720] as LatLng, radius: 960 },
-  { center: [35.6290, 139.7760] as LatLng, radius: 780 },
-  { center: [35.6618, 139.7310] as LatLng, radius: 720 },
-];
-
-const LOW_BLOCKS: BlockSpec[] = [
-  { id: 'shinjuku-low', position: [35.6928, 139.7055], width: 210, height: 156, style: 'downtown' },
-  { id: 'marunouchi-low', position: [35.6812, 139.7671], width: 228, height: 166, style: 'civic' },
-  { id: 'shibuya-low', position: [35.6595, 139.7015], width: 196, height: 148, style: 'compact' },
-  { id: 'ueno-low', position: [35.7138, 139.7770], width: 192, height: 144, style: 'garden' },
-  { id: 'bay-low', position: [35.6400, 139.7865], width: 218, height: 154, style: 'waterfront' },
-];
-
-const MID_BLOCKS: BlockSpec[] = [
-  { id: 'shinjuku-mid-1', position: [35.6945, 139.7025], width: 142, height: 110, style: 'downtown' },
-  { id: 'shinjuku-mid-2', position: [35.6908, 139.7115], width: 138, height: 108, style: 'compact' },
-  { id: 'marunouchi-mid-1', position: [35.6818, 139.7645], width: 150, height: 114, style: 'civic' },
-  { id: 'marunouchi-mid-2', position: [35.6767, 139.7728], width: 136, height: 106, style: 'downtown' },
-  { id: 'ueno-mid', position: [35.7138, 139.7805], width: 136, height: 106, style: 'garden' },
-  { id: 'asakusa-mid', position: [35.7115, 139.7960], width: 128, height: 102, style: 'compact' },
-  { id: 'shibuya-mid', position: [35.6593, 139.7038], width: 134, height: 104, style: 'compact' },
-  { id: 'bay-mid', position: [35.6516, 139.7940], width: 146, height: 112, style: 'waterfront' },
-];
-
-const HIGH_BLOCKS: BlockSpec[] = [
-  { id: 'tokyo-high-1', position: [35.6819, 139.7648], width: 96, height: 76, style: 'civic' },
-  { id: 'tokyo-high-2', position: [35.6797, 139.7700], width: 92, height: 72, style: 'compact' },
-  { id: 'tokyo-high-3', position: [35.6748, 139.7652], width: 96, height: 74, style: 'downtown' },
-  { id: 'tokyo-high-4', position: [35.6718, 139.7715], width: 88, height: 70, style: 'compact' },
-  { id: 'tokyo-high-5', position: [35.6875, 139.7535], width: 90, height: 72, style: 'garden' },
-  { id: 'tokyo-high-6', position: [35.6650, 139.7580], width: 92, height: 72, style: 'compact' },
-  { id: 'tokyo-high-7', position: [35.6610, 139.7865], width: 96, height: 74, style: 'waterfront' },
-  { id: 'tokyo-high-8', position: [35.7062, 139.7942], width: 92, height: 70, style: 'compact' },
-];
-
-const createRoadSvg = (width: number, height: number, palette: { road: string; roadEdge: string; lane: string }) => `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#000" flood-opacity="0.16"/></filter>
-  </defs>
-  <g filter="url(#shadow)">
-    <path d="M10 ${height - 48} C ${width * 0.18} ${height - 92}, ${width * 0.32} ${height - 18}, ${width * 0.48} ${height - 62} S ${width * 0.8} ${height - 116}, ${width - 12} ${height - 50}" fill="none" stroke="${palette.roadEdge}" stroke-width="30" stroke-linecap="round"/>
-    <path d="M10 ${height - 48} C ${width * 0.18} ${height - 92}, ${width * 0.32} ${height - 18}, ${width * 0.48} ${height - 62} S ${width * 0.8} ${height - 116}, ${width - 12} ${height - 50}" fill="none" stroke="${palette.road}" stroke-width="22" stroke-linecap="round"/>
-    <path d="M12 ${height - 48} C ${width * 0.18} ${height - 92}, ${width * 0.32} ${height - 18}, ${width * 0.48} ${height - 62} S ${width * 0.8} ${height - 116}, ${width - 14} ${height - 50}" fill="none" stroke="${palette.lane}" stroke-width="4" stroke-linecap="round" stroke-dasharray="12 12"/>
-  </g>
-</svg>`;
-
-const buildingSvg = (x: number, y: number, w: number, h: number, depth: number, colors: { top: string; left: string; right: string; window: string; stroke?: string }) => {
-  const top = `${x},${y + depth} ${x + depth},${y} ${x + w + depth},${y} ${x + w},${y + depth}`;
-  const left = `${x},${y + depth} ${x},${y + h + depth} ${x + w},${y + h + depth} ${x + w},${y + depth}`;
-  const right = `${x + w},${y + depth} ${x + w},${y + h + depth} ${x + w + depth},${y + h} ${x + w + depth},${y}`;
-  const windows = [] as string[];
-  const cols = Math.max(2, Math.floor(w / 16));
-  const rows = Math.max(2, Math.floor(h / 18));
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const wx = x + 8 + col * ((w - 16) / cols);
-      const wy = y + depth + 10 + row * ((h - 18) / rows);
-      windows.push(`<rect x="${wx.toFixed(1)}" y="${wy.toFixed(1)}" width="5.8" height="7" rx="1.6" fill="${colors.window}" fill-opacity="0.84"/>`);
-    }
-  }
-  return `
-    <polygon points="${top}" fill="${colors.top}" stroke="${colors.stroke ?? 'rgba(20,20,20,0.12)'}" stroke-width="1"/>
-    <polygon points="${left}" fill="${colors.left}" stroke="${colors.stroke ?? 'rgba(20,20,20,0.12)'}" stroke-width="1"/>
-    <polygon points="${right}" fill="${colors.right}" stroke="${colors.stroke ?? 'rgba(20,20,20,0.12)'}" stroke-width="1"/>
-    ${windows.join('')}
-  `;
-};
-
-const treeSvg = (cx: number, cy: number, color: string) => `
-  <circle cx="${cx}" cy="${cy}" r="8" fill="${color}" opacity="0.95"/>
-  <circle cx="${cx - 8}" cy="${cy + 4}" r="6" fill="${color}" opacity="0.88"/>
-  <circle cx="${cx + 7}" cy="${cy + 4}" r="6" fill="${color}" opacity="0.88"/>
-  <rect x="${cx - 1.6}" y="${cy + 8}" width="3.2" height="8" rx="1.2" fill="#81604a"/>
-`;
-
-const createBlockSvg = (style: BlockStyle, width: number, height: number) => {
-  const palettes = {
-    downtown: {
-      topA: '#5fc3ff', leftA: '#66a4f2', rightA: '#2f7fd6',
-      topB: '#ff765d', leftB: '#e85f48', rightB: '#d65138',
-      topC: '#ffd85f', leftC: '#e8c54e', rightC: '#d9b43d',
-      road: '#3f444a', roadEdge: '#2c3136', lane: '#f8d55a', window: '#f6fbff', tree: '#86c65b',
-    },
-    civic: {
-      topA: '#f6ba63', leftA: '#d99a4d', rightA: '#c5833a',
-      topB: '#7ec1ea', leftB: '#5c9bd5', rightB: '#467fb9',
-      topC: '#f37b63', leftC: '#d75f4e', rightC: '#bd4d40',
-      road: '#45484e', roadEdge: '#2d3136', lane: '#f8e08a', window: '#f7f2de', tree: '#77b658',
-    },
-    garden: {
-      topA: '#8fdab0', leftA: '#6bbd90', rightA: '#58a57c',
-      topB: '#ffd36b', leftB: '#e8be53', rightB: '#d2aa48',
-      topC: '#f79072', leftC: '#e27459', rightC: '#ca644c',
-      road: '#44494d', roadEdge: '#2c3236', lane: '#f3d784', window: '#fcfbf0', tree: '#68b05a',
-    },
-    waterfront: {
-      topA: '#8ad6ef', leftA: '#63b5d4', rightA: '#4f9bbc',
-      topB: '#ff9e70', leftB: '#ea7d5c', rightB: '#d86b4e',
-      topC: '#fff1b6', leftC: '#eadc93', rightC: '#d2c27a',
-      road: '#44484d', roadEdge: '#2a2f34', lane: '#f8df8a', window: '#fffef6', tree: '#73bc65',
-    },
-    compact: {
-      topA: '#ff8470', leftA: '#e36a57', rightA: '#c85845',
-      topB: '#5fc0f5', leftB: '#49a6d8', rightB: '#3b8fbe',
-      topC: '#ffe367', leftC: '#e8c94f', rightC: '#d3b445',
-      road: '#464b50', roadEdge: '#2d3137', lane: '#f7d969', window: '#fffef8', tree: '#79bf59',
-    },
-  } as const;
-  const p = palettes[style];
-  const road = createRoadSvg(width, height, { road: p.road, roadEdge: p.roadEdge, lane: p.lane });
-  const scene = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-    <defs>
-      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/></filter>
-    </defs>
-    <rect width="${width}" height="${height}" fill="transparent"/>
-    <polygon points="26,${height - 48} ${width - 26},${height - 68} ${width - 54},${height - 18} 14,${height - 2}" fill="#f5f0df" opacity="0.96"/>
-    <image href="${svgToDataUri(road)}" x="0" y="0" width="${width}" height="${height}"/>
-    <g filter="url(#shadow)">
-      ${buildingSvg(30, 28, 32, 48, 10, { top: p.topA, left: p.leftA, right: p.rightA, window: p.window })}
-      ${buildingSvg(74, 18, 40, 62, 12, { top: p.topB, left: p.leftB, right: p.rightB, window: p.window })}
-      ${buildingSvg(126, 36, 34, 44, 10, { top: p.topC, left: p.leftC, right: p.rightC, window: p.window })}
-      ${buildingSvg(162, 50, 28, 30, 8, { top: p.topA, left: p.leftA, right: p.rightA, window: p.window })}
-      ${style !== 'compact' ? buildingSvg(112, 78, 48, 34, 9, { top: p.topB, left: p.leftB, right: p.rightB, window: p.window }) : ''}
-      ${style === 'civic' ? `<rect x="92" y="82" width="52" height="28" rx="4" fill="#d89d5b"/><circle cx="118" cy="78" r="12" fill="#7ec1ea" stroke="#4d88af" stroke-width="4"/><rect x="114" y="60" width="8" height="10" rx="2" fill="#f7f2de"/>` : ''}
-      ${style === 'waterfront' ? `<path d="M150 118 C 170 108, 192 108, 210 118 L 210 ${height - 12} L 132 ${height - 8} Z" fill="#84d9f0" opacity="0.82"/>` : ''}
-    </g>
-    ${treeSvg(52, height - 44, p.tree)}
-    ${treeSvg(96, height - 38, p.tree)}
-    ${treeSvg(145, height - 30, p.tree)}
-    ${style !== 'downtown' ? treeSvg(180, height - 40, p.tree) : ''}
-  </svg>`;
-  return scene;
-};
-
-const createBlockIcon = (block: BlockSpec, zoom: number) => {
-  const scale = block.scale ?? 1;
-  const zoomFactor = zoom <= 11.8 ? 1 : zoom <= 13.5 ? 0.88 : 0.72;
-  const width = Math.round(block.width * scale * zoomFactor);
-  const height = Math.round(block.height * scale * zoomFactor);
-  const anchor: [number, number] = block.anchor ?? [Math.round(width / 2), Math.round(height * 0.82)];
-  const svg = createBlockSvg(block.style, width, height);
-  return L.divIcon({
-    className: 'tokyo-mini-block-icon',
-    html: `<div class="tokyo-mini-block" style="width:${width}px;height:${height}px"><img src="${svgToDataUri(svg)}" width="${width}" height="${height}" alt="" /></div>`,
-    iconSize: [width, height],
-    iconAnchor: anchor,
-  });
-};
+function svgToDataUri(svg: string) {
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/\s+/g, ' ').trim())}`;
+}
 
 export default function TokyoIllustrationLayer() {
   const map = useMap();
@@ -282,104 +154,129 @@ export default function TokyoIllustrationLayer() {
     },
   });
 
-  const lowIcons = useMemo(() => LOW_BLOCKS.map((block) => ({ ...block, icon: createBlockIcon(block, zoom) })), [zoom]);
-  const midIcons = useMemo(() => MID_BLOCKS.map((block) => ({ ...block, icon: createBlockIcon(block, zoom) })), [zoom]);
-  const highIcons = useMemo(() => HIGH_BLOCKS.map((block) => ({ ...block, icon: createBlockIcon(block, zoom) })), [zoom]);
+  const routeConfig = useMemo(() => {
+    if (zoom >= 14.8) {
+      return {
+        showMasses: false,
+        washOpacity: 0.11,
+        primaryWeight: 7,
+        secondaryWeight: 5,
+        routeOpacity: 0.22,
+        parkOpacity: 0.08,
+        waterOpacity: 0.1,
+        massOpacity: 0,
+      };
+    }
 
-  const showLow = zoom <= 11.9;
-  const showMid = zoom > 11.4 && zoom <= 13.6;
-  const showHigh = zoom >= 13.0;
+    if (zoom >= 13.2) {
+      return {
+        showMasses: true,
+        washOpacity: 0.15,
+        primaryWeight: 8,
+        secondaryWeight: 6,
+        routeOpacity: 0.32,
+        parkOpacity: 0.11,
+        waterOpacity: 0.12,
+        massOpacity: 0.2,
+      };
+    }
 
-  const roadBase = zoom >= 14.5 ? 16 : zoom >= 13 ? 18 : zoom >= 11.5 ? 20 : 24;
-  const roadAccent = Math.max(8, roadBase - 6);
-  const washOpacity = zoom >= 14.5 ? 0.1 : zoom >= 13 ? 0.14 : 0.18;
+    return {
+      showMasses: true,
+      washOpacity: 0.22,
+      primaryWeight: 10,
+      secondaryWeight: 7,
+      routeOpacity: 0.42,
+      parkOpacity: 0.14,
+      waterOpacity: 0.16,
+      massOpacity: 0.34,
+    };
+  }, [zoom]);
 
   return (
     <>
-      <Pane name="tokyo-wash-pane" style={{ zIndex: 210, pointerEvents: 'none', mixBlendMode: 'multiply' }}>
+      <Pane name="tokyo-base-wash-pane" style={{ zIndex: 205, pointerEvents: 'none', mixBlendMode: 'multiply' }}>
         <Rectangle
           bounds={TOKYO_ILLUSTRATION_THEME.bounds}
           pathOptions={{
             stroke: false,
-            fillColor: '#f7f2e8',
-            fillOpacity: zoom >= 14 ? 0.09 : 0.12,
+            fillColor: TOKYO_ILLUSTRATION_THEME.palette.wash,
+            fillOpacity: zoom >= 14.8 ? 0.05 : 0.08,
           }}
         />
-        <ImageOverlay url={TOKYO_WASH_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={washOpacity} />
-        <ImageOverlay url={TOKYO_BAY_PATCH} bounds={[[35.58, 139.73], [35.72, 139.92]]} opacity={zoom >= 14 ? 0.18 : 0.24} />
+        <ImageOverlay url={TOKYO_WASH_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={routeConfig.washOpacity} />
+      </Pane>
+
+      <Pane name="tokyo-water-pane" style={{ zIndex: 214, pointerEvents: 'none' }}>
+        {TOKYO_WATER.map((water, index) => (
+          <Circle
+            key={`water-${index}`}
+            center={water.center}
+            radius={water.radius}
+            pathOptions={{
+              color: TOKYO_ILLUSTRATION_THEME.palette.water,
+              weight: 0,
+              fillColor: TOKYO_ILLUSTRATION_THEME.palette.water,
+              fillOpacity: routeConfig.waterOpacity,
+            }}
+          />
+        ))}
       </Pane>
 
       <Pane name="tokyo-park-pane" style={{ zIndex: 220, pointerEvents: 'none' }}>
-        {PARK_PATCHES.map((park, index) => (
+        {TOKYO_PARKS.map((park, index) => (
           <Circle
-            key={index}
+            key={`park-${index}`}
             center={park.center}
             radius={park.radius}
             pathOptions={{
               color: TOKYO_ILLUSTRATION_THEME.palette.park,
               weight: 0,
               fillColor: TOKYO_ILLUSTRATION_THEME.palette.park,
-              fillOpacity: zoom >= 14 ? 0.12 : 0.16,
+              fillOpacity: routeConfig.parkOpacity,
             }}
           />
         ))}
       </Pane>
 
-      <Pane name="tokyo-road-shadow-pane" style={{ zIndex: 230, pointerEvents: 'none' }}>
-        {PRIMARY_ROADS.map((path, index) => (
-          <Polyline
-            key={`p-shadow-${index}`}
-            positions={path}
-            pathOptions={{ color: '#31363b', weight: roadBase + 8, opacity: 0.46, lineCap: 'round', lineJoin: 'round' }}
-          />
-        ))}
-        {SECONDARY_ROADS.map((path, index) => (
-          <Polyline
-            key={`s-shadow-${index}`}
-            positions={path}
-            pathOptions={{ color: '#3a4045', weight: roadBase + 4, opacity: 0.28, lineCap: 'round', lineJoin: 'round' }}
-          />
-        ))}
-      </Pane>
+      {routeConfig.showMasses && (
+        <Pane name="tokyo-mass-pane" style={{ zIndex: 240, pointerEvents: 'none', mixBlendMode: 'multiply' }}>
+          <ImageOverlay url={TOKYO_DISTRICT_MASS_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={routeConfig.massOpacity} />
+        </Pane>
+      )}
 
-      <Pane name="tokyo-road-pane" style={{ zIndex: 232, pointerEvents: 'none' }}>
-        {PRIMARY_ROADS.map((path, index) => (
-          <Polyline
-            key={`p-road-${index}`}
-            positions={path}
-            pathOptions={{ color: '#50565b', weight: roadBase, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }}
-          />
-        ))}
-        {SECONDARY_ROADS.map((path, index) => (
-          <Polyline
-            key={`s-road-${index}`}
-            positions={path}
-            pathOptions={{ color: '#5d6368', weight: roadBase - 5, opacity: 0.76, lineCap: 'round', lineJoin: 'round' }}
-          />
-        ))}
-      </Pane>
-
-      <Pane name="tokyo-road-line-pane" style={{ zIndex: 234, pointerEvents: 'none' }}>
-        {PRIMARY_ROADS.map((path, index) => (
-          <Polyline
-            key={`p-line-${index}`}
-            positions={path}
-            pathOptions={{ color: '#f6dc7a', weight: roadAccent, opacity: 0.96, lineCap: 'round', lineJoin: 'round', dashArray: zoom >= 14 ? '1 16' : '1 18' }}
-          />
-        ))}
-        {SECONDARY_ROADS.map((path, index) => (
-          <Polyline
-            key={`s-line-${index}`}
-            positions={path}
-            pathOptions={{ color: '#dfe8eb', weight: Math.max(4, roadAccent - 4), opacity: 0.72, lineCap: 'round', lineJoin: 'round', dashArray: zoom >= 14 ? '1 18' : '1 20' }}
-          />
-        ))}
-      </Pane>
-
-      <Pane name="tokyo-block-pane" style={{ zIndex: 245, pointerEvents: 'none' }}>
-        {showLow && lowIcons.map((block) => <Marker key={block.id} position={block.position} icon={block.icon} interactive={false} />)}
-        {showMid && midIcons.map((block) => <Marker key={block.id} position={block.position} icon={block.icon} interactive={false} />)}
-        {showHigh && highIcons.map((block) => <Marker key={block.id} position={block.position} icon={block.icon} interactive={false} />)}
+      <Pane name="tokyo-route-pane" style={{ zIndex: 250, pointerEvents: 'none' }}>
+        <Polyline
+          positions={TOKYO_PRIMARY_ROUTE}
+          pathOptions={{
+            color: TOKYO_ILLUSTRATION_THEME.palette.routePrimary,
+            weight: routeConfig.primaryWeight,
+            opacity: routeConfig.routeOpacity,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }}
+        />
+        <Polyline
+          positions={TOKYO_SECONDARY_ROUTE}
+          pathOptions={{
+            color: TOKYO_ILLUSTRATION_THEME.palette.routeSecondary,
+            weight: routeConfig.secondaryWeight,
+            opacity: routeConfig.routeOpacity * 0.9,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }}
+        />
+        <Polyline
+          positions={TOKYO_NORTHERN_ROUTE}
+          pathOptions={{
+            color: '#a8c9d3',
+            weight: Math.max(4, routeConfig.secondaryWeight - 1),
+            opacity: routeConfig.routeOpacity * 0.72,
+            lineCap: 'round',
+            lineJoin: 'round',
+            dashArray: zoom >= 14.8 ? '2 10' : '4 14',
+          }}
+        />
       </Pane>
     </>
   );

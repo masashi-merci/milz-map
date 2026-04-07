@@ -144,38 +144,29 @@ html, body, #root {
   background: rgba(0, 0, 0, 0.2);
 }
 .map-mode-tokyo {
-  background: #f5f2e8 !important;
+  background: #f3efe6 !important;
+}
+
+.map-mode-tokyo .leaflet-container {
+  background: #f3efe6 !important;
 }
 
 .map-mode-tokyo .leaflet-tile-pane {
-  filter: saturate(0.72) contrast(0.92) brightness(1.08) sepia(0.16) hue-rotate(-8deg);
+  filter: saturate(0.56) contrast(0.95) brightness(1.06) sepia(0.22) hue-rotate(-8deg);
+}
+
+.map-mode-tokyo .leaflet-overlay-pane {
+  filter: saturate(0.95);
 }
 
 .map-mode-tokyo .leaflet-control-zoom a,
 .map-mode-tokyo .leaflet-bar a {
-  background: rgba(251, 247, 237, 0.92) !important;
+  background: rgba(251, 247, 237, 0.94) !important;
   color: #24312c !important;
 }
 
-
-
-
-.tokyo-mini-block-icon {
-  background: transparent !important;
-  border: none !important;
+.map-mode-tokyo .leaflet-marker-pane img,
+.map-mode-tokyo .leaflet-shadow-pane img {
+  filter: drop-shadow(0 10px 18px rgba(36, 49, 44, 0.16));
 }
 
-.tokyo-mini-block {
-  filter: drop-shadow(0 18px 22px rgba(0, 0, 0, 0.12));
-  transform-origin: center bottom;
-}
-
-.tokyo-mini-block img {
-  display: block;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-.map-mode-tokyo .leaflet-overlay-pane img {
-  image-rendering: auto;
-}
