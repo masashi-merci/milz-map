@@ -38,8 +38,7 @@ const TOKYO_PARKS = [
   { center: [35.6254, 139.7757] as [number, number], radius: 720 },
 ];
 
-const svgToDataUri = (svg: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/
-\s+/g, ' ').trim())}`;
+const svgToDataUri = (svg: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/\n\s+/g, ' ').trim())}`;
 
 const TOKYO_WASH_URL = svgToDataUri(`
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
