@@ -425,7 +425,8 @@ export default function App() {
     stateCode: '',
     stateName: '',
     cityCode: '',
-    cityName: ''
+    cityName: '',
+    address: ''
   });
 
   // Get lists for dropdowns
@@ -1525,7 +1526,7 @@ export default function App() {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
     const selectedCity = cities.find(c => c.name === locationFilter.cityName);
     
-    if (selectedCity) {
+    if (selectedCity && !locationFilter.address) {
       const lat = parseFloat(selectedCity.latitude || '');
       const lng = parseFloat(selectedCity.longitude || '');
       if (!isNaN(lat) && !isNaN(lng)) {
@@ -1535,8 +1536,8 @@ export default function App() {
       }
     }
 
-    const { countryName, stateName, cityName } = locationFilter;
-    const fullAddress = `${countryName} ${stateName} ${cityName}`.trim();
+    const { countryName, stateName, cityName, address } = locationFilter;
+    const fullAddress = `${countryName} ${stateName} ${cityName} ${address}`.trim();
     if (!fullAddress) return;
 
     setAiLoading(true);
@@ -1975,7 +1976,7 @@ export default function App() {
                       : (
                         <div className="relative">
                           <SlidersHorizontal className="w-5 h-5" />
-                          {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || selectedCategory !== 'all') && (
+                          {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || locationFilter.address !== '' || selectedCategory !== 'all') && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-black rounded-full border-2 border-white" />
                           )}
                         </div>
@@ -2098,6 +2099,13 @@ export default function App() {
                           </select>
                         </div>
 
+                        <input
+                          type="text"
+                          placeholder="Detailed Address (Optional)"
+                          value={locationFilter.address}
+                          onChange={(e) => setLocationFilter(prev => ({ ...prev, address: e.target.value }))}
+                          className="w-full px-4 py-4 bg-stone-50 border border-stone-200 text-sm focus:outline-none font-medium"
+                        />
                         <button
                           onClick={() => {
                             setLocationFilter({ 
@@ -2106,7 +2114,8 @@ export default function App() {
                               stateCode: '', 
                               stateName: '', 
                               cityCode: '', 
-                              cityName: '' 
+                              cityName: '', 
+                              address: '' 
                             });
                             setIsFiltering(false);
                           }}
@@ -2242,6 +2251,7 @@ export default function App() {
                   />
                 )}
               </MapContainer>
+
 
             </motion.div>
           )}
@@ -2436,6 +2446,7 @@ export default function App() {
                                 stateName: s?.name || '',
                                 cityCode: region.city,
                                 cityName: region.city,
+                                address: ''
                               });
                             }}
                             className={cn(
@@ -2523,6 +2534,16 @@ export default function App() {
                           </select>
                         </div>
 
+                        <div className="space-y-2">
+                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">住所・ランドマーク（任意）</label>
+                          <input
+                            type="text"
+                            placeholder="住所・ランドマーク（任意）"
+                            value={locationFilter.address}
+                            onChange={(e) => setLocationFilter(prev => ({ ...prev, address: e.target.value }))}
+                            className="w-full px-8 py-5 bg-stone-50 border border-stone-100 rounded-[1.5rem] outline-none focus:border-black font-bold text-sm"
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -2617,6 +2638,7 @@ export default function App() {
                             {[locationFilter.countryName, locationFilter.stateName, locationFilter.cityName]
                               .filter(Boolean)
                               .join(' ') || 'Worldwide'}
+                            {locationFilter.address && ` - ${locationFilter.address}`}
                           </p>
                         </div>
                       </div>
