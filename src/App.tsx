@@ -137,7 +137,7 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Country, State, City } from 'country-state-city';
-import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey } from './illustrationMaps';
+import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey, type TokyoViewMode } from './illustrationMaps';
 import TokyoIllustrationLayer from './TokyoIllustrationLayer';
 
 // Utility for tailwind classes
@@ -317,11 +317,11 @@ const getCustomIcon = (category: string, mapStyle: string) => {
   const iconSvg = CATEGORY_ICONS_SVG[category] || CATEGORY_ICONS_SVG['その他'];
   
   const isIllustrative = isIllustrationTheme(mapStyle as MapThemeKey);
-  const bgColor = isIllustrative ? '#000000' : config.bg;
-  const iconColor = isIllustrative ? '#FFFFFF' : config.color;
-  const borderColor = isIllustrative ? '#000000' : 'white';
+  const bgColor = isIllustrative ? '#f3e6cd' : config.bg;
+  const iconColor = isIllustrative ? '#3a3026' : config.color;
+  const borderColor = isIllustrative ? 'rgba(255,255,255,0.72)' : 'white';
   const borderWidth = isIllustrative ? '2px' : '3px';
-  const shadow = isIllustrative ? 'none' : '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+  const shadow = isIllustrative ? '0 16px 28px rgba(53, 44, 34, 0.16)' : '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
   
   const html = `
     <div style="
@@ -382,6 +382,14 @@ export default function App() {
     return 'original';
   });
 
+  const [tokyoViewMode, setTokyoViewMode] = useState<TokyoViewMode>(() => {
+    const saved = localStorage.getItem('milz_tokyo_view_mode');
+    if (saved === 'top' || saved === 'softTilt' || saved === 'miniature') {
+      return saved;
+    }
+    return 'softTilt';
+  });
+
   const newPlacePosition = useMemo(() => newPlacePos ? [newPlacePos.lat, newPlacePos.lng] as L.LatLngExpression : null, [newPlacePos]);
   
   const newPlaceIcon = useMemo(() => {
@@ -406,6 +414,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('milz_map_style', mapStyle);
   }, [mapStyle]);
+
+  useEffect(() => {
+    localStorage.setItem('milz_tokyo_view_mode', tokyoViewMode);
+  }, [tokyoViewMode]);
 
   const activeMapTheme = MAP_THEMES[mapStyle];
   const activeIllustrationTheme = mapStyle === 'tokyo' ? TOKYO_ILLUSTRATION_THEME : null;
@@ -2129,10 +2141,55 @@ export default function App() {
             </AnimatePresence>
           </div>
 
+              {activeIllustrationTheme && (
+                <>
+                  <div className="pointer-events-none absolute inset-0 z-[420] overflow-hidden">
+                    <div className={cn(
+                      "absolute inset-x-0 top-0 transition-all duration-500",
+                      tokyoViewMode === 'top' ? "h-[12%] bg-white/8 backdrop-blur-[1px]" : tokyoViewMode === 'softTilt' ? "h-[18%] bg-white/10 backdrop-blur-[4px]" : "h-[24%] bg-white/14 backdrop-blur-[10px]"
+                    )} style={{ WebkitMaskImage: 'linear-gradient(to bottom, black 0%, rgba(0,0,0,.88) 45%, transparent 100%)', maskImage: 'linear-gradient(to bottom, black 0%, rgba(0,0,0,.88) 45%, transparent 100%)' }} />
+                    <div className={cn(
+                      "absolute inset-x-0 bottom-0 transition-all duration-500",
+                      tokyoViewMode === 'top' ? "h-[14%] bg-white/7 backdrop-blur-[1px]" : tokyoViewMode === 'softTilt' ? "h-[22%] bg-white/10 backdrop-blur-[4px]" : "h-[30%] bg-white/16 backdrop-blur-[12px]"
+                    )} style={{ WebkitMaskImage: 'linear-gradient(to top, black 0%, rgba(0,0,0,.9) 55%, transparent 100%)', maskImage: 'linear-gradient(to top, black 0%, rgba(0,0,0,.9) 55%, transparent 100%)' }} />
+                    <div className={cn(
+                      "absolute inset-0 transition-opacity duration-500",
+                      tokyoViewMode === 'top' ? "opacity-20" : tokyoViewMode === 'softTilt' ? "opacity-28" : "opacity-38"
+                    )} style={{ background: 'radial-gradient(circle at center, rgba(255,255,255,0) 36%, rgba(250,247,238,0.14) 70%, rgba(245,240,230,0.3) 100%)' }} />
+                  </div>
+
+                  <div className="absolute top-28 left-1/2 z-[1100] -translate-x-1/2">
+                    <div className="rounded-full border border-white/65 bg-[rgba(250,247,238,0.78)] p-1.5 shadow-[0_20px_50px_rgba(38,44,52,0.12)] backdrop-blur-xl">
+                      <div className="grid grid-cols-3 gap-1">
+                        {([
+                          { key: 'top', label: 'Top' },
+                          { key: 'softTilt', label: 'Soft Tilt' },
+                          { key: 'miniature', label: 'Miniature' },
+                        ] as { key: TokyoViewMode; label: string }[]).map((option) => (
+                          <button
+                            key={option.key}
+                            onClick={() => setTokyoViewMode(option.key)}
+                            className={cn(
+                              "min-w-[112px] rounded-full px-5 py-3 text-[11px] font-semibold tracking-[0.12em] transition-all",
+                              tokyoViewMode === option.key
+                                ? "bg-white text-stone-900 shadow-[0_8px_18px_rgba(34,37,42,0.12)]"
+                                : "text-stone-500 hover:text-stone-800"
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
               <MapContainer 
                 center={TOKYO_CENTER} 
                 zoom={DEFAULT_ZOOM} 
-                className={cn("h-full w-full transition-all duration-700", activeIllustrationTheme && "map-mode-tokyo")}
+                className={cn("h-full w-full transition-all duration-700", activeIllustrationTheme && "map-mode-tokyo", activeIllustrationTheme && `tokyo-view-${tokyoViewMode}`)}
+                data-tokyo-view={activeIllustrationTheme ? tokyoViewMode : undefined}
                 zoomControl={false}
               >
                 <TileLayer
@@ -2140,7 +2197,7 @@ export default function App() {
                   url={activeMapTheme.url}
                   opacity={activeIllustrationTheme ? 0.96 : 1}
                 />
-                {activeIllustrationTheme && <TokyoIllustrationLayer />}
+                {activeIllustrationTheme && <TokyoIllustrationLayer viewMode={tokyoViewMode} />}
                 <MapEvents 
                   user={user}
                   role={role}
@@ -2709,6 +2766,38 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {mapStyle === 'tokyo' && (
+                    <div className="space-y-4">
+                      <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Tokyo Camera Angle</div>
+                      <div className="grid grid-cols-3 gap-3">
+                        {([
+                          { key: 'top', label: 'Top', description: 'より真上' },
+                          { key: 'softTilt', label: 'Soft Tilt', description: '少し俯瞰' },
+                          { key: 'miniature', label: 'Miniature', description: '模型感を強める' },
+                        ] as { key: TokyoViewMode; label: string; description: string }[]).map((option) => (
+                          <button
+                            key={option.key}
+                            onClick={() => setTokyoViewMode(option.key)}
+                            className={cn(
+                              "rounded-2xl border px-4 py-4 text-left transition-all",
+                              tokyoViewMode === option.key
+                                ? "border-black bg-stone-950 text-white shadow-xl"
+                                : "border-stone-200 bg-white text-stone-900 hover:border-stone-400"
+                            )}
+                          >
+                            <div className="text-[11px] font-black uppercase tracking-[0.16em]">{option.label}</div>
+                            <div className={cn(
+                              "mt-2 text-[10px] font-medium",
+                              tokyoViewMode === option.key ? "text-stone-300" : "text-stone-500"
+                            )}>
+                              {option.description}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-4 space-y-2">

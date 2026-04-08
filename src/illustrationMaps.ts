@@ -1,4 +1,5 @@
 export type IllustrationThemeKey = 'tokyo';
+export type TokyoViewMode = 'top' | 'softTilt' | 'miniature';
 export type MapThemeKey = 'original' | IllustrationThemeKey;
 
 export type LatLngTuple = [number, number];
@@ -47,13 +48,13 @@ export const TOKYO_ILLUSTRATION_THEME: TokyoIllustrationTheme = {
   zoom: 12,
   bounds: [[35.60, 139.64], [35.78, 139.88]],
   palette: {
-    wash: '#f4f1e6',
-    ink: '#24312c',
-    routePrimary: '#dd9d37',
-    routeSecondary: '#86a9b6',
-    park: '#91b57d',
-    water: '#d9ebe7',
-    card: '#fbf7ed',
+    wash: '#edf0ea',
+    ink: '#1f2a32',
+    routePrimary: '#d8b06e',
+    routeSecondary: '#8fb2c4',
+    park: '#7fa478',
+    water: '#b8d8e6',
+    card: '#faf5eb',
   },
 };
 

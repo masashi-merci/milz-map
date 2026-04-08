@@ -1,36 +1,6 @@
-import { useMemo, useState } from 'react';
-import { Circle, ImageOverlay, Pane, Polyline, Rectangle, useMap, useMapEvents } from 'react-leaflet';
-import { TOKYO_ILLUSTRATION_THEME } from './illustrationMaps';
-
-const TOKYO_PRIMARY_ROUTE: [number, number][] = [
-  [35.6938, 139.7034],
-  [35.6896, 139.7304],
-  [35.6907, 139.7495],
-  [35.6812, 139.7671],
-  [35.6762, 139.7603],
-  [35.6717, 139.765],
-  [35.666, 139.7708],
-  [35.655, 139.7953],
-];
-
-const TOKYO_SECONDARY_ROUTE: [number, number][] = [
-  [35.6595, 139.7005],
-  [35.6655, 139.7293],
-  [35.668, 139.7414],
-  [35.6639, 139.758],
-  [35.658, 139.7782],
-  [35.6274, 139.7768],
-];
-
-const TOKYO_NORTHERN_ROUTE: [number, number][] = [
-  [35.7138, 139.777],
-  [35.7061, 139.7745],
-  [35.6942, 139.7679],
-  [35.6812, 139.7671],
-  [35.6735, 139.7638],
-  [35.6678, 139.7941],
-  [35.6274, 139.7768],
-];
+import { useEffect, useMemo, useState } from 'react';
+import { Circle, ImageOverlay, Pane, Rectangle, useMap, useMapEvents } from 'react-leaflet';
+import { TOKYO_ILLUSTRATION_THEME, type TokyoViewMode } from './illustrationMaps';
 
 const TOKYO_PARKS = [
   { center: [35.6852, 139.7528] as [number, number], radius: 1200 },
@@ -48,41 +18,27 @@ const TOKYO_DISTRICT_MASS_URL = svgToDataUri(`
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#24312c" flood-opacity="0.12"/>
+      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#25313a" flood-opacity="0.12"/>
     </filter>
-    <linearGradient id="topStone" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f2ead8"/>
-      <stop offset="100%" stop-color="#e4dcc8"/>
-    </linearGradient>
-    <linearGradient id="topSage" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#dbe4cf"/>
-      <stop offset="100%" stop-color="#c8d5bf"/>
-    </linearGradient>
-    <linearGradient id="topSlate" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#d7e3e4"/>
-      <stop offset="100%" stop-color="#c2d1d2"/>
-    </linearGradient>
+    <filter id="blur1" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
   </defs>
 
-  <g filter="url(#shadow)" opacity="0.78">
-    <g transform="translate(300 420)">
-      ${renderCluster('#e6d9bf', '#cabf9f', '#b4aa8e')}
-    </g>
-    <g transform="translate(540 505) scale(1.1)">
-      ${renderCluster('#d0ddc3', '#b8c8ab', '#93a98b')}
-    </g>
-    <g transform="translate(760 445) scale(1.08)">
-      ${renderCluster('#d7e1e2', '#c1cfd0', '#92a6aa')}
-    </g>
-    <g transform="translate(1015 610) scale(0.95)">
-      ${renderCluster('#ead5bd', '#d8bea1', '#b6987c')}
-    </g>
-    <g transform="translate(1040 300) scale(0.92)">
-      ${renderCluster('#d8e2ce', '#c0cfb5', '#98ac8e')}
-    </g>
-    <g transform="translate(350 740) scale(0.9)">
-      ${renderCluster('#d7e1e2', '#c1cfd0', '#92a6aa')}
-    </g>
+  <g opacity="0.5" filter="url(#blur1)">
+    <ellipse cx="280" cy="200" rx="160" ry="120" fill="#d7e6ee"/>
+    <ellipse cx="1280" cy="230" rx="180" ry="140" fill="#dce7d5"/>
+    <ellipse cx="540" cy="920" rx="260" ry="180" fill="#e5d8bd"/>
+    <ellipse cx="1200" cy="890" rx="240" ry="180" fill="#d1e4ed"/>
+  </g>
+
+  <g filter="url(#shadow)" opacity="0.54">
+    <g transform="translate(250 395)">${renderCluster('#edf2ec', '#c9d0c5', '#aab2a7')}</g>
+    <g transform="translate(520 500) scale(1.06)">${renderCluster('#eff3ef', '#d2d7d0', '#adb5ad')}</g>
+    <g transform="translate(810 438) scale(1.08)">${renderCluster('#e7eef1', '#c6d2d7', '#9eaab0')}</g>
+    <g transform="translate(1065 628) scale(0.96)">${renderCluster('#f1eadf', '#d9ccbb', '#b8ab9b')}</g>
+    <g transform="translate(1040 315) scale(0.92)">${renderCluster('#dfe8da', '#c2cfba', '#9ead96')}</g>
+    <g transform="translate(350 760) scale(0.88)">${renderCluster('#ebeff0', '#ced6d8', '#a8b1b4')}</g>
   </g>
 </svg>`);
 
@@ -90,26 +46,22 @@ const TOKYO_WASH_URL = svgToDataUri(`
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200">
   <defs>
     <filter id="blur1" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="48" />
+      <feGaussianBlur stdDeviation="44" />
     </filter>
     <pattern id="paper" width="160" height="160" patternUnits="userSpaceOnUse">
-      <circle cx="22" cy="30" r="2" fill="#ffffff" fill-opacity="0.28"/>
-      <circle cx="116" cy="78" r="1.6" fill="#20312c" fill-opacity="0.05"/>
-      <circle cx="62" cy="126" r="1.5" fill="#ffffff" fill-opacity="0.16"/>
-      <circle cx="136" cy="140" r="1.1" fill="#20312c" fill-opacity="0.04"/>
+      <circle cx="22" cy="30" r="2" fill="#ffffff" fill-opacity="0.18"/>
+      <circle cx="116" cy="78" r="1.6" fill="#20312c" fill-opacity="0.03"/>
+      <circle cx="62" cy="126" r="1.5" fill="#ffffff" fill-opacity="0.12"/>
+      <circle cx="136" cy="140" r="1.1" fill="#20312c" fill-opacity="0.02"/>
     </pattern>
   </defs>
-  <rect width="1600" height="1200" fill="#f6f3ea" fill-opacity="0.16"/>
-  <rect width="1600" height="1200" fill="url(#paper)" opacity="0.95"/>
-  <g filter="url(#blur1)" opacity="0.34">
-    <ellipse cx="340" cy="250" rx="240" ry="160" fill="#bfd6d8"/>
-    <ellipse cx="1190" cy="300" rx="260" ry="180" fill="#c2d7b0"/>
-    <ellipse cx="520" cy="840" rx="300" ry="190" fill="#ead19d"/>
-    <ellipse cx="1220" cy="860" rx="330" ry="220" fill="#bfd6d8"/>
-  </g>
-  <g opacity="0.28">
-    <path d="M210 375 C 420 290, 615 315, 790 390 S 1135 515, 1385 470" fill="none" stroke="#dd9d37" stroke-width="56" stroke-linecap="round"/>
-    <path d="M245 710 C 455 610, 610 615, 815 670 S 1135 790, 1360 708" fill="none" stroke="#90b2be" stroke-width="62" stroke-linecap="round"/>
+  <rect width="1600" height="1200" fill="#f6f5f1" fill-opacity="0.16"/>
+  <rect width="1600" height="1200" fill="url(#paper)" opacity="0.92"/>
+  <g filter="url(#blur1)" opacity="0.28">
+    <ellipse cx="320" cy="225" rx="240" ry="160" fill="#bdd6e3"/>
+    <ellipse cx="1180" cy="270" rx="260" ry="180" fill="#d7e3d0"/>
+    <ellipse cx="520" cy="860" rx="300" ry="190" fill="#e9d5b6"/>
+    <ellipse cx="1230" cy="860" rx="330" ry="220" fill="#bfd4e2"/>
   </g>
 </svg>`);
 
@@ -129,9 +81,9 @@ function renderCluster(top: string, side: string, shadow: string) {
       const rightPoly = `${x + w},${y} ${x + w + d},${y + d} ${x + w + d},${y + h + d} ${x + w},${y + h}`;
       const frontPoly = `${x},${y} ${x + d},${y + d} ${x + d},${y + h + d} ${x},${y + h}`;
       return `
-        <polygon points="${frontPoly}" fill="${side}" opacity="0.92"/>
-        <polygon points="${rightPoly}" fill="${shadow}" opacity="0.92"/>
-        <polygon points="${topPoly}" fill="${top}" opacity="0.96"/>
+        <polygon points="${frontPoly}" fill="${side}" opacity="0.88"/>
+        <polygon points="${rightPoly}" fill="${shadow}" opacity="0.88"/>
+        <polygon points="${topPoly}" fill="${top}" opacity="0.92"/>
       `;
     })
     .join('');
@@ -141,7 +93,19 @@ function svgToDataUri(svg: string) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.replace(/\s+/g, ' ').trim())}`;
 }
 
-export default function TokyoIllustrationLayer() {
+function cleanMilzPerspectiveTransform(value: string) {
+  return value
+    .replace(/\s*perspective\([^)]*\)\s*rotateX\([^)]*\)\s*scale\([^)]*\)\s*translateY\([^)]*\)\s*$/, '')
+    .trim();
+}
+
+const perspectiveByView: Record<TokyoViewMode, string> = {
+  top: '',
+  softTilt: ' perspective(1600px) rotateX(10deg) scale(1.06) translateY(12px)',
+  miniature: ' perspective(1400px) rotateX(17deg) scale(1.11) translateY(22px)',
+};
+
+export default function TokyoIllustrationLayer({ viewMode }: { viewMode: TokyoViewMode }) {
   const map = useMap();
   const [zoom, setZoom] = useState(map.getZoom());
 
@@ -154,57 +118,99 @@ export default function TokyoIllustrationLayer() {
     },
   });
 
-  const routeConfig = useMemo(() => {
+  useEffect(() => {
+    const pane = map.getPanes().mapPane;
+    if (!pane) return;
+
+    let raf = 0;
+    const applyPerspective = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const currentTransform = pane.style.transform || '';
+        const baseTransform = cleanMilzPerspectiveTransform(currentTransform);
+        pane.style.transformOrigin = '50% 58%';
+        pane.style.transformStyle = 'preserve-3d';
+        pane.style.willChange = 'transform';
+        pane.style.transform = `${baseTransform}${perspectiveByView[viewMode]}`.trim();
+      });
+    };
+
+    applyPerspective();
+
+    const observer = new MutationObserver(applyPerspective);
+    observer.observe(pane, { attributes: true, attributeFilter: ['style'] });
+
+    map.on('move', applyPerspective);
+    map.on('moveend', applyPerspective);
+    map.on('zoom', applyPerspective);
+    map.on('zoomend', applyPerspective);
+    map.on('resize', applyPerspective);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      map.off('move', applyPerspective);
+      map.off('moveend', applyPerspective);
+      map.off('zoom', applyPerspective);
+      map.off('zoomend', applyPerspective);
+      map.off('resize', applyPerspective);
+      pane.style.transform = cleanMilzPerspectiveTransform(pane.style.transform || '');
+      pane.style.transformOrigin = '';
+      pane.style.transformStyle = '';
+      pane.style.willChange = '';
+    };
+  }, [map, viewMode]);
+
+  const overlayConfig = useMemo(() => {
+    const baseByView: Record<TokyoViewMode, { wash: number; mass: number; park: number; water: number }> = {
+      top: { wash: 0.04, mass: 0.04, park: 0.06, water: 0.08 },
+      softTilt: { wash: 0.08, mass: 0.08, park: 0.09, water: 0.1 },
+      miniature: { wash: 0.12, mass: 0.12, park: 0.11, water: 0.12 },
+    };
+
+    const selected = baseByView[viewMode];
+
     if (zoom >= 14.8) {
       return {
-        showMasses: false,
-        washOpacity: 0.11,
-        primaryWeight: 7,
-        secondaryWeight: 5,
-        routeOpacity: 0.22,
-        parkOpacity: 0.08,
-        waterOpacity: 0.1,
+        washOpacity: selected.wash * 0.65,
+        parkOpacity: selected.park * 0.75,
+        waterOpacity: selected.water * 0.72,
         massOpacity: 0,
+        showMasses: false,
       };
     }
 
     if (zoom >= 13.2) {
       return {
+        washOpacity: selected.wash,
+        parkOpacity: selected.park,
+        waterOpacity: selected.water,
+        massOpacity: selected.mass * 0.7,
         showMasses: true,
-        washOpacity: 0.15,
-        primaryWeight: 8,
-        secondaryWeight: 6,
-        routeOpacity: 0.32,
-        parkOpacity: 0.11,
-        waterOpacity: 0.12,
-        massOpacity: 0.2,
       };
     }
 
     return {
+      washOpacity: selected.wash * 1.1,
+      parkOpacity: selected.park * 1.1,
+      waterOpacity: selected.water * 1.1,
+      massOpacity: selected.mass,
       showMasses: true,
-      washOpacity: 0.22,
-      primaryWeight: 10,
-      secondaryWeight: 7,
-      routeOpacity: 0.42,
-      parkOpacity: 0.14,
-      waterOpacity: 0.16,
-      massOpacity: 0.34,
     };
-  }, [zoom]);
+  }, [viewMode, zoom]);
 
   return (
     <>
-      <Pane name="tokyo-base-wash-pane" style={{ zIndex: 205, pointerEvents: 'none', mixBlendMode: 'multiply' }}>
+      <Pane name="tokyo-base-wash-pane" style={{ zIndex: 205, pointerEvents: 'none', mixBlendMode: 'screen' }}>
         <Rectangle
           bounds={TOKYO_ILLUSTRATION_THEME.bounds}
           pathOptions={{
             stroke: false,
             fillColor: TOKYO_ILLUSTRATION_THEME.palette.wash,
-            fillOpacity: zoom >= 14.8 ? 0.05 : 0.08,
+            fillOpacity: zoom >= 14.8 ? 0.03 : 0.05,
           }}
         />
-        <ImageOverlay url={TOKYO_WASH_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={routeConfig.washOpacity} />
+        <ImageOverlay url={TOKYO_WASH_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={overlayConfig.washOpacity} />
       </Pane>
 
       <Pane name="tokyo-water-pane" style={{ zIndex: 214, pointerEvents: 'none' }}>
@@ -217,7 +223,7 @@ export default function TokyoIllustrationLayer() {
               color: TOKYO_ILLUSTRATION_THEME.palette.water,
               weight: 0,
               fillColor: TOKYO_ILLUSTRATION_THEME.palette.water,
-              fillOpacity: routeConfig.waterOpacity,
+              fillOpacity: overlayConfig.waterOpacity,
             }}
           />
         ))}
@@ -233,51 +239,17 @@ export default function TokyoIllustrationLayer() {
               color: TOKYO_ILLUSTRATION_THEME.palette.park,
               weight: 0,
               fillColor: TOKYO_ILLUSTRATION_THEME.palette.park,
-              fillOpacity: routeConfig.parkOpacity,
+              fillOpacity: overlayConfig.parkOpacity,
             }}
           />
         ))}
       </Pane>
 
-      {routeConfig.showMasses && (
-        <Pane name="tokyo-mass-pane" style={{ zIndex: 240, pointerEvents: 'none', mixBlendMode: 'multiply' }}>
-          <ImageOverlay url={TOKYO_DISTRICT_MASS_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={routeConfig.massOpacity} />
+      {overlayConfig.showMasses && (
+        <Pane name="tokyo-mass-pane" style={{ zIndex: 238, pointerEvents: 'none', mixBlendMode: 'multiply' }}>
+          <ImageOverlay url={TOKYO_DISTRICT_MASS_URL} bounds={TOKYO_ILLUSTRATION_THEME.bounds} opacity={overlayConfig.massOpacity} />
         </Pane>
       )}
-
-      <Pane name="tokyo-route-pane" style={{ zIndex: 250, pointerEvents: 'none' }}>
-        <Polyline
-          positions={TOKYO_PRIMARY_ROUTE}
-          pathOptions={{
-            color: TOKYO_ILLUSTRATION_THEME.palette.routePrimary,
-            weight: routeConfig.primaryWeight,
-            opacity: routeConfig.routeOpacity,
-            lineCap: 'round',
-            lineJoin: 'round',
-          }}
-        />
-        <Polyline
-          positions={TOKYO_SECONDARY_ROUTE}
-          pathOptions={{
-            color: TOKYO_ILLUSTRATION_THEME.palette.routeSecondary,
-            weight: routeConfig.secondaryWeight,
-            opacity: routeConfig.routeOpacity * 0.9,
-            lineCap: 'round',
-            lineJoin: 'round',
-          }}
-        />
-        <Polyline
-          positions={TOKYO_NORTHERN_ROUTE}
-          pathOptions={{
-            color: '#a8c9d3',
-            weight: Math.max(4, routeConfig.secondaryWeight - 1),
-            opacity: routeConfig.routeOpacity * 0.72,
-            lineCap: 'round',
-            lineJoin: 'round',
-            dashArray: zoom >= 14.8 ? '2 10' : '4 14',
-          }}
-        />
-      </Pane>
     </>
   );
 }
