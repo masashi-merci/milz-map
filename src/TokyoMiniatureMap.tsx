@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import L from 'leaflet';
 
 export type TokyoAnglePreset = 'top' | 'soft' | 'miniature';
 
-export const TOKYO_ANGLE_PRESETS: Record<TokyoAnglePreset, { label: string; pitch: number; bearing: number; zoom: number }> = {
-  top: { label: 'Top', pitch: 0, bearing: 0, zoom: 12.6 },
-  soft: { label: 'Soft Tilt', pitch: 38, bearing: 16, zoom: 13.2 },
-  miniature: { label: 'Miniature', pitch: 56, bearing: 22, zoom: 13.8 },
+type PresetConfig = {
+  label: string;
+  pitch: number;
+  bearing: number;
+  zoom: number;
+  minZoom: number;
+  maxZoom: number;
+};
+
+export const TOKYO_ANGLE_PRESETS: Record<TokyoAnglePreset, PresetConfig> = {
+  top: { label: 'Top', pitch: 8, bearing: 0, zoom: 15.05, minZoom: 11.5, maxZoom: 17.8 },
+  soft: { label: 'Soft Tilt', pitch: 42, bearing: -18, zoom: 15.4, minZoom: 11.5, maxZoom: 18.5 },
+  miniature: { label: 'Miniature', pitch: 68, bearing: -28, zoom: 16.0, minZoom: 11.5, maxZoom: 19 },
 };
 
 export interface MapNavigator {
@@ -53,6 +62,7 @@ declare global {
 const TOKYO_CENTER: [number, number] = [139.7671, 35.6812];
 const MAPTILER_JS = 'https://cdn.maptiler.com/maptiler-sdk-js/v3.10.2/maptiler-sdk.umd.min.js';
 const MAPTILER_CSS = 'https://cdn.maptiler.com/maptiler-sdk-js/v3.10.2/maptiler-sdk.css';
+const TERRAIN_SOURCE_URL = 'https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json';
 
 let sdkLoader: Promise<any> | null = null;
 
@@ -122,17 +132,91 @@ function buildMapNavigator(map: any): MapNavigator {
   };
 }
 
-function add3dBuildings(map: any) {
+function resolveStyle(sdk: any, preset: TokyoAnglePreset) {
+  const style = sdk?.MapStyle;
+  if (!style) return 'streets-v2';
+
+  switch (preset) {
+    case 'top':
+      return style.STREETS?.PASTEL || style.BASIC?.LIGHT || style.STREETS || 'streets-v2';
+    case 'soft':
+      return style.VOYAGER?.VINTAGE || style.BASIC?.LIGHT || style.STREETS || 'streets-v2';
+    case 'miniature':
+      return style.HYBRID || style.SATELLITE || style.STREETS || 'streets-v2';
+    default:
+      return style.STREETS || 'streets-v2';
+  }
+}
+
+function addTerrain(map: any, apiKey: string, preset: TokyoAnglePreset) {
+  if (preset === 'top') {
+    try {
+      map.setTerrain?.(null);
+    } catch {
+      // noop
+    }
+    return;
+  }
+
+  if (!map.getSource?.('milz-terrain')) {
+    try {
+      map.addSource('milz-terrain', {
+        type: 'raster-dem',
+        url: `${TERRAIN_SOURCE_URL}?key=${apiKey}`,
+        tileSize: 256,
+        maxzoom: 14,
+      });
+    } catch {
+      // noop
+    }
+  }
+
+  try {
+    map.setTerrain?.({ source: 'milz-terrain', exaggeration: preset === 'miniature' ? 1.22 : 1.1 });
+  } catch {
+    // noop
+  }
+}
+
+function addAtmosphere(map: any, preset: TokyoAnglePreset) {
+  try {
+    map.setFog?.({
+      color: preset === 'miniature' ? 'rgba(236,231,220,0.78)' : 'rgba(244,241,234,0.62)',
+      'high-color': preset === 'miniature' ? 'rgba(164,186,214,0.34)' : 'rgba(194,211,228,0.20)',
+      'horizon-blend': preset === 'miniature' ? 0.18 : 0.08,
+      'space-color': 'rgba(255,255,255,0)',
+      'star-intensity': 0,
+    });
+  } catch {
+    // noop
+  }
+}
+
+function add3dBuildings(map: any, preset: TokyoAnglePreset) {
   const style = map.getStyle?.();
   if (!style?.layers || !style?.sources) return;
-  if (map.getLayer?.('milz-3d-buildings')) return;
 
-  const sourceEntries = Object.entries(style.sources).filter(([, source]: any) => source?.type === 'vector');
-  const referenceLayer = style.layers.find((layer: any) => layer['source-layer'] === 'building' && layer.source);
-  const sourceId = referenceLayer?.source || sourceEntries[0]?.[0];
+  if (map.getLayer?.('milz-3d-buildings')) {
+    try {
+      map.removeLayer('milz-3d-buildings');
+    } catch {
+      // noop
+    }
+  }
+
+  const candidateLayer = style.layers.find((layer: any) => {
+    const sourceLayer = String(layer['source-layer'] || '');
+    return sourceLayer.toLowerCase().includes('building') && layer.source;
+  });
+  const sourceId = candidateLayer?.source;
+  const sourceLayer = candidateLayer?.['source-layer'] || 'building';
   if (!sourceId) return;
 
   const beforeId = style.layers.find((layer: any) => layer.type === 'symbol' && layer.layout?.['text-field'])?.id;
+
+  const opacity = preset === 'miniature' ? 0.92 : preset === 'soft' ? 0.84 : 0.72;
+  const baseColor = preset === 'miniature' ? '#e0dad0' : '#d9d3ca';
+  const tallColor = preset === 'miniature' ? '#b9b0a7' : '#c4bbb2';
 
   try {
     map.addLayer(
@@ -140,30 +224,67 @@ function add3dBuildings(map: any) {
         id: 'milz-3d-buildings',
         type: 'fill-extrusion',
         source: sourceId,
-        'source-layer': 'building',
+        'source-layer': sourceLayer,
         minzoom: 13,
         paint: {
           'fill-extrusion-color': [
             'interpolate',
             ['linear'],
-            ['coalesce', ['get', 'render_height'], ['get', 'height'], 0],
+            ['coalesce', ['to-number', ['get', 'render_height']], ['to-number', ['get', 'height']], 0],
             0,
-            '#d6d0c6',
-            60,
-            '#c8c0b6',
-            140,
-            '#b8b0a7',
+            baseColor,
+            30,
+            '#d0c7bc',
+            90,
+            tallColor,
+            180,
+            '#a59a91',
           ],
-          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 0],
-          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
-          'fill-extrusion-opacity': 0.78,
+          'fill-extrusion-height': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            13,
+            0,
+            14,
+            ['coalesce', ['to-number', ['get', 'render_height']], ['to-number', ['get', 'height']], 0],
+          ],
+          'fill-extrusion-base': [
+            'coalesce',
+            ['to-number', ['get', 'render_min_height']],
+            ['to-number', ['get', 'min_height']],
+            0,
+          ],
+          'fill-extrusion-opacity': opacity,
           'fill-extrusion-vertical-gradient': true,
         },
       },
       beforeId,
     );
   } catch {
-    // keep stable preview even if a style/source does not support building extrusion
+    // noop
+  }
+}
+
+function applyMiniaturePresentation(map: any, apiKey: string, presetKey: TokyoAnglePreset, instant = false) {
+  const preset = TOKYO_ANGLE_PRESETS[presetKey];
+  const duration = instant ? 0 : 1100;
+
+  addAtmosphere(map, presetKey);
+  addTerrain(map, apiKey, presetKey);
+  add3dBuildings(map, presetKey);
+
+  try {
+    map.easeTo({
+      center: TOKYO_CENTER,
+      zoom: preset.zoom,
+      pitch: preset.pitch,
+      bearing: preset.bearing,
+      duration,
+      essential: true,
+    });
+  } catch {
+    // noop
   }
 }
 
@@ -189,9 +310,9 @@ export default function TokyoMiniatureMap({
   const tempMarkerRef = useRef<any | null>(null);
   const addMarkerRef = useRef<any | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
-
-  const preset = TOKYO_ANGLE_PRESETS[anglePreset];
   const hasKey = Boolean(apiKey && apiKey.trim());
+  const preset = TOKYO_ANGLE_PRESETS[anglePreset];
+  const styleTarget = useMemo(() => ({ anglePreset }), [anglePreset]);
 
   useEffect(() => {
     if (!hasKey || !containerRef.current) return;
@@ -204,32 +325,45 @@ export default function TokyoMiniatureMap({
 
         const map = new sdk.Map({
           container: containerRef.current,
-          style: 'streets-v2',
+          style: resolveStyle(sdk, anglePreset),
           center: TOKYO_CENTER,
           zoom: preset.zoom,
           bearing: preset.bearing,
           pitch: preset.pitch,
           antialias: true,
           attributionControl: false,
+          maxPitch: 85,
+          maxZoom: preset.maxZoom,
+          minZoom: preset.minZoom,
+          dragRotate: true,
+          touchPitch: true,
+          terrainControl: false,
         });
+
         mapInstanceRef.current = map;
         mapRef.current = buildMapNavigator(map);
 
-        map.on('load', () => {
-          add3dBuildings(map);
-          map.easeTo({ pitch: preset.pitch, bearing: preset.bearing, zoom: preset.zoom, duration: 0 });
+        const syncBounds = () => {
           const bounds = map.getBounds?.();
           if (bounds) {
             setMapBounds(L.latLngBounds([bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getEast()]));
           }
+        };
+
+        map.on('load', () => {
+          applyMiniaturePresentation(map, apiKey!, anglePreset, true);
+          syncBounds();
         });
 
-        map.on('moveend', () => {
-          const bounds = map.getBounds?.();
-          if (bounds) {
-            setMapBounds(L.latLngBounds([bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getEast()]));
-          }
+        map.on('style.load', () => {
+          applyMiniaturePresentation(map, apiKey!, anglePreset, true);
         });
+
+        map.on('idle', () => {
+          add3dBuildings(map, anglePreset);
+        });
+
+        map.on('moveend', syncBounds);
 
         map.on('click', (event: any) => {
           if (role === 'admin' && activeTab === 'map' && isAdding) {
@@ -257,16 +391,23 @@ export default function TokyoMiniatureMap({
   }, [apiKey, hasKey]);
 
   useEffect(() => {
+    const sdk = window.maptilersdk;
     const map = mapInstanceRef.current;
-    if (!map) return;
-    map.easeTo({
-      pitch: preset.pitch,
-      bearing: preset.bearing,
-      zoom: preset.zoom,
-      duration: 900,
-      essential: true,
+    if (!sdk || !map || !hasKey) return;
+
+    map.setStyle(resolveStyle(sdk, styleTarget.anglePreset));
+    map.once('style.load', () => {
+      applyMiniaturePresentation(map, apiKey!, styleTarget.anglePreset, false);
     });
-  }, [preset]);
+  }, [apiKey, hasKey, styleTarget]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !hasKey) return;
+    map.setMinZoom?.(preset.minZoom);
+    map.setMaxZoom?.(preset.maxZoom);
+    applyMiniaturePresentation(map, apiKey!, anglePreset, false);
+  }, [anglePreset, apiKey, hasKey, preset]);
 
   useEffect(() => {
     const sdk = window.maptilersdk;
@@ -277,7 +418,7 @@ export default function TokyoMiniatureMap({
     markerRefs.current = [];
 
     places.forEach((place) => {
-      const el = createMarkerNode('place', place.name);
+      const el = createMarkerNode('place');
       el.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -345,9 +486,9 @@ export default function TokyoMiniatureMap({
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#ebe7df]">
       <div ref={containerRef} className="h-full w-full" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0)_45%,rgba(233,229,220,0.65)_100%)]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-white/85 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-white/60 to-transparent" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0)_36%,rgba(233,229,220,0.24)_78%,rgba(231,226,216,0.62)_100%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/66 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-white/42 to-transparent" />
       {runtimeError && (
         <div className="absolute inset-x-6 bottom-28 rounded-2xl border border-rose-200 bg-white/95 px-4 py-3 text-[11px] font-semibold text-rose-600 shadow-lg backdrop-blur">
           {runtimeError}
