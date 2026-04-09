@@ -41,6 +41,7 @@ Pages の Variables and Secrets に以下を設定してください。
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_GEMINI_API_KEY`
 - `VITE_ADMIN_EMAIL`
+- `VITE_MAPTILER_KEY`（東京ミニチュア表示の見た目確認用）
 - `R2_PUBLIC_DOMAIN`（任意。公開ドメインがある場合）
 
 ## R2 バインディング
@@ -68,3 +69,10 @@ npm run build
 ## 補足
 
 現在の AI 機能は `VITE_GEMINI_API_KEY` をフロントに埋め込む構成です。運用上は、将来的に Gemini 呼び出しも Cloudflare Functions 経由に移す方が安全です。
+
+
+## 東京ミニチュアのテスト
+
+- `Map Theme Settings` から `Tokyo Miniature` を選ぶと MapTiler ベースのテスト表示になります。
+- 角度は `Top / Soft Tilt / Miniature` の3種類を切り替えできます。
+- このモードでは地図のベースラベルを消し、登録済みスポットだけを目立たせています。

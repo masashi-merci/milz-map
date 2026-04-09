@@ -137,8 +137,9 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Country, State, City } from 'country-state-city';
-import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey, type TokyoViewMode } from './illustrationMaps';
-import TokyoIllustrationLayer from './TokyoIllustrationLayer';
+import { MAP_THEMES, TOKYO_ANGLE_PRESETS, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey, type TokyoAnglePresetKey } from './illustrationMaps';
+import TokyoMapTilerView from './TokyoMapTilerView';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -317,11 +318,11 @@ const getCustomIcon = (category: string, mapStyle: string) => {
   const iconSvg = CATEGORY_ICONS_SVG[category] || CATEGORY_ICONS_SVG['その他'];
   
   const isIllustrative = isIllustrationTheme(mapStyle as MapThemeKey);
-  const bgColor = isIllustrative ? '#f3e6cd' : config.bg;
-  const iconColor = isIllustrative ? '#3a3026' : config.color;
-  const borderColor = isIllustrative ? 'rgba(255,255,255,0.72)' : 'white';
+  const bgColor = isIllustrative ? '#000000' : config.bg;
+  const iconColor = isIllustrative ? '#FFFFFF' : config.color;
+  const borderColor = isIllustrative ? '#000000' : 'white';
   const borderWidth = isIllustrative ? '2px' : '3px';
-  const shadow = isIllustrative ? '0 16px 28px rgba(53, 44, 34, 0.16)' : '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+  const shadow = isIllustrative ? 'none' : '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
   
   const html = `
     <div style="
@@ -381,11 +382,10 @@ export default function App() {
     }
     return 'original';
   });
-
-  const [tokyoViewMode, setTokyoViewMode] = useState<TokyoViewMode>(() => {
-    const saved = localStorage.getItem('milz_tokyo_view_mode');
-    if (saved === 'top' || saved === 'softTilt' || saved === 'miniature') {
-      return saved;
+  const [tokyoAnglePreset, setTokyoAnglePreset] = useState<TokyoAnglePresetKey>(() => {
+    const saved = localStorage.getItem('milz_tokyo_angle_preset');
+    if (saved && saved in TOKYO_ANGLE_PRESETS) {
+      return saved as TokyoAnglePresetKey;
     }
     return 'softTilt';
   });
@@ -416,20 +416,12 @@ export default function App() {
   }, [mapStyle]);
 
   useEffect(() => {
-    localStorage.setItem('milz_tokyo_view_mode', tokyoViewMode);
-  }, [tokyoViewMode]);
+    localStorage.setItem('milz_tokyo_angle_preset', tokyoAnglePreset);
+  }, [tokyoAnglePreset]);
 
   const activeMapTheme = MAP_THEMES[mapStyle];
   const activeIllustrationTheme = mapStyle === 'tokyo' ? TOKYO_ILLUSTRATION_THEME : null;
 
-  useEffect(() => {
-    if (!mapRef.current || !activeIllustrationTheme) return;
-    mapRef.current.flyTo(activeIllustrationTheme.center, activeIllustrationTheme.zoom, {
-      animate: true,
-      duration: 1.2,
-    });
-  }, [activeIllustrationTheme]);
-  
   const [locationFilter, setLocationFilter] = useState({
     countryCode: 'JP',
     countryName: 'Japan',
@@ -506,6 +498,25 @@ export default function App() {
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<L.Map | null>(null);
+  const maplibreRef = useRef<MapLibreMap | null>(null);
+  const maptilerKey = (import.meta.env.VITE_MAPTILER_KEY || '').trim();
+
+  const flyToLocation = React.useCallback((lat: number, lng: number, zoom = 16) => {
+    if (mapStyle === 'tokyo' && maplibreRef.current) {
+      const preset = TOKYO_ANGLE_PRESETS[tokyoAnglePreset];
+      maplibreRef.current.flyTo({
+        center: [lng, lat],
+        zoom,
+        pitch: preset.pitch,
+        bearing: preset.bearing,
+        essential: true,
+        duration: 1200,
+      });
+      return;
+    }
+
+    mapRef.current?.flyTo([lat, lng], zoom);
+  }, [mapStyle, tokyoAnglePreset]);
 
   const isPlaceholder = (val: string) => {
     if (!val) return false;
@@ -1007,7 +1018,7 @@ export default function App() {
       const coords = JSON.parse(response.text);
       if (coords.lat && coords.lng) {
         setNewPlacePos({ lat: coords.lat, lng: coords.lng });
-        mapRef.current?.flyTo([coords.lat, coords.lng], 16);
+        flyToLocation(coords.lat, coords.lng, 16);
       }
     } catch (error) {
       console.error('Modal geocoding error:', error);
@@ -1529,7 +1540,7 @@ export default function App() {
     setTempAiPin({ lat: rec.lat, lng: rec.lng, name: rec.name });
     setActiveTab('map');
     setTimeout(() => {
-      mapRef.current?.flyTo([rec.lat, rec.lng], 16);
+      flyToLocation(rec.lat, rec.lng, 16);
     }, 100);
   };
   const handleSearchLocation = async () => {
@@ -1540,7 +1551,7 @@ export default function App() {
       const lat = parseFloat(selectedCity.latitude || '');
       const lng = parseFloat(selectedCity.longitude || '');
       if (!isNaN(lat) && !isNaN(lng)) {
-        mapRef.current?.flyTo([lat, lng], 14);
+        flyToLocation(lat, lng, 14);
         setIsFiltering(false);
         return;
       }
@@ -1576,7 +1587,7 @@ export default function App() {
 
       const coords = JSON.parse(response.text);
       if (coords.lat && coords.lng) {
-        mapRef.current?.flyTo([coords.lat, coords.lng], 14);
+        flyToLocation(coords.lat, coords.lng, 14);
         setIsFiltering(false);
       }
     } catch (error) {
@@ -1995,6 +2006,25 @@ export default function App() {
                   </button>
                 </div>
 
+                {mapStyle === 'tokyo' && (
+                  <div className="self-center glass rounded-full shadow-xl px-2 py-2 flex items-center gap-2 border border-white/60">
+                    {(Object.keys(TOKYO_ANGLE_PRESETS) as TokyoAnglePresetKey[]).map((presetKey) => (
+                      <button
+                        key={presetKey}
+                        onClick={() => setTokyoAnglePreset(presetKey)}
+                        className={cn(
+                          "px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.25em] transition-all",
+                          tokyoAnglePreset === presetKey
+                            ? "bg-black text-white shadow-lg"
+                            : "text-stone-500 hover:text-black hover:bg-white/70"
+                        )}
+                      >
+                        {TOKYO_ANGLE_PRESETS[presetKey].name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <AnimatePresence>
                   {isFiltering && (
                     <motion.div
@@ -2141,163 +2171,137 @@ export default function App() {
             </AnimatePresence>
           </div>
 
-              {activeIllustrationTheme && (
-                <>
-                  <div className="pointer-events-none absolute inset-0 z-[420] overflow-hidden">
-                    <div className={cn(
-                      "absolute inset-x-0 top-0 transition-all duration-500",
-                      tokyoViewMode === 'top' ? "h-[12%] bg-white/8 backdrop-blur-[1px]" : tokyoViewMode === 'softTilt' ? "h-[18%] bg-white/10 backdrop-blur-[4px]" : "h-[24%] bg-white/14 backdrop-blur-[10px]"
-                    )} style={{ WebkitMaskImage: 'linear-gradient(to bottom, black 0%, rgba(0,0,0,.88) 45%, transparent 100%)', maskImage: 'linear-gradient(to bottom, black 0%, rgba(0,0,0,.88) 45%, transparent 100%)' }} />
-                    <div className={cn(
-                      "absolute inset-x-0 bottom-0 transition-all duration-500",
-                      tokyoViewMode === 'top' ? "h-[14%] bg-white/7 backdrop-blur-[1px]" : tokyoViewMode === 'softTilt' ? "h-[22%] bg-white/10 backdrop-blur-[4px]" : "h-[30%] bg-white/16 backdrop-blur-[12px]"
-                    )} style={{ WebkitMaskImage: 'linear-gradient(to top, black 0%, rgba(0,0,0,.9) 55%, transparent 100%)', maskImage: 'linear-gradient(to top, black 0%, rgba(0,0,0,.9) 55%, transparent 100%)' }} />
-                    <div className={cn(
-                      "absolute inset-0 transition-opacity duration-500",
-                      tokyoViewMode === 'top' ? "opacity-20" : tokyoViewMode === 'softTilt' ? "opacity-28" : "opacity-38"
-                    )} style={{ background: 'radial-gradient(circle at center, rgba(255,255,255,0) 36%, rgba(250,247,238,0.14) 70%, rgba(245,240,230,0.3) 100%)' }} />
-                  </div>
-
-                  <div className="absolute top-28 left-1/2 z-[1100] -translate-x-1/2">
-                    <div className="rounded-full border border-white/65 bg-[rgba(250,247,238,0.78)] p-1.5 shadow-[0_20px_50px_rgba(38,44,52,0.12)] backdrop-blur-xl">
-                      <div className="grid grid-cols-3 gap-1">
-                        {([
-                          { key: 'top', label: 'Top' },
-                          { key: 'softTilt', label: 'Soft Tilt' },
-                          { key: 'miniature', label: 'Miniature' },
-                        ] as { key: TokyoViewMode; label: string }[]).map((option) => (
-                          <button
-                            key={option.key}
-                            onClick={() => setTokyoViewMode(option.key)}
-                            className={cn(
-                              "min-w-[112px] rounded-full px-5 py-3 text-[11px] font-semibold tracking-[0.12em] transition-all",
-                              tokyoViewMode === option.key
-                                ? "bg-white text-stone-900 shadow-[0_8px_18px_rgba(34,37,42,0.12)]"
-                                : "text-stone-500 hover:text-stone-800"
-                            )}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <MapContainer 
-                center={TOKYO_CENTER} 
-                zoom={DEFAULT_ZOOM} 
-                className={cn("h-full w-full transition-all duration-700", activeIllustrationTheme && "map-mode-tokyo", activeIllustrationTheme && `tokyo-view-${tokyoViewMode}`)}
-                data-tokyo-view={activeIllustrationTheme ? tokyoViewMode : undefined}
-                zoomControl={false}
-              >
-                <TileLayer
-                  attribution={activeMapTheme.attribution}
-                  url={activeMapTheme.url}
-                  opacity={activeIllustrationTheme ? 0.96 : 1}
-                />
-                {activeIllustrationTheme && <TokyoIllustrationLayer viewMode={tokyoViewMode} />}
-                <MapEvents 
+              {mapStyle === 'tokyo' ? (
+                <TokyoMapTilerView
+                  maptilerKey={maptilerKey}
+                  anglePreset={tokyoAnglePreset}
+                  places={filteredPlaces}
+                  tempAiPin={tempAiPin}
+                  newPlacePos={newPlacePos}
                   user={user}
                   role={role}
                   activeTab={activeTab}
+                  onSelectPlace={(place) => setSelectedPlaceForDetail(place as Place)}
                   setNewPlacePos={setNewPlacePos}
                   setIsAdding={setIsAdding}
                   setMapBounds={setMapBounds}
-                  mapRef={mapRef}
+                  onMapReady={(map) => {
+                    maplibreRef.current = map;
+                  }}
                 />
-                
-                {filteredPlaces.map((place) => (
-                  <Marker 
-                    key={place.id} 
-                    position={[place.lat, place.lng]}
-                    icon={getCustomIcon(place.category, mapStyle)}
-                  >
-                    <Popup className="custom-popup">
-                      <div className="p-0 min-w-[260px] overflow-hidden">
-                        {place.image_url && (
-                          <div className="aspect-[16/10] w-full overflow-hidden relative group">
-                            <img src={place.image_url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                          </div>
-                        )}
-                        <div className="p-5 space-y-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-1.5">
-                              <h3 className="font-serif italic text-xl text-black leading-tight m-0">{place.name}</h3>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-semibold text-stone-400 uppercase tracking-[0.1em]">
-                                  {place.category}
-                                </span>
-                                {place.rating && (
-                                  <div className="flex items-center gap-0.5 text-amber-500">
-                                    <Star className="w-2.5 h-2.5 fill-current" />
-                                    <span className="text-[9px] font-bold">{place.rating}</span>
-                                  </div>
-                                )}
-                              </div>
+              ) : (
+                <MapContainer 
+                  center={TOKYO_CENTER} 
+                  zoom={DEFAULT_ZOOM} 
+                  className="h-full w-full transition-all duration-700"
+                  zoomControl={false}
+                >
+                  <TileLayer
+                    attribution={activeMapTheme.attribution}
+                    url={activeMapTheme.url}
+                    opacity={1}
+                  />
+                  <MapEvents 
+                    user={user}
+                    role={role}
+                    activeTab={activeTab}
+                    setNewPlacePos={setNewPlacePos}
+                    setIsAdding={setIsAdding}
+                    setMapBounds={setMapBounds}
+                    mapRef={mapRef}
+                  />
+                  
+                  {filteredPlaces.map((place) => (
+                    <Marker 
+                      key={place.id} 
+                      position={[place.lat, place.lng]}
+                      icon={getCustomIcon(place.category, mapStyle)}
+                    >
+                      <Popup className="custom-popup">
+                        <div className="p-0 min-w-[260px] overflow-hidden">
+                          {place.image_url && (
+                            <div className="aspect-[16/10] w-full overflow-hidden relative group">
+                              <img src={place.image_url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                             </div>
-                            <button 
-                              onClick={() => handleToggleFavorite(place.id)}
-                              className={cn(
-                                "p-2.5 rounded-full transition-all active:scale-90 glass",
-                                favorites.some(f => f.place_id === place.id) ? "text-rose-500 border-rose-100 bg-rose-50/50" : "text-stone-300 hover:text-stone-600"
-                              )}
-                            >
-                              <Heart className={cn("w-4 h-4", favorites.some(f => f.place_id === place.id) && "fill-current")} />
-                            </button>
-                          </div>
-                          
-                          <p className="text-[11px] text-stone-500 leading-relaxed font-normal line-clamp-2 m-0">{place.description}</p>
-                          
-                          <div className="pt-1">
-                            <button 
-                              onClick={() => setSelectedPlaceForDetail(place)}
-                              className="w-full py-3 bg-black text-white text-[10px] font-bold uppercase tracking-[0.15em] rounded-xl flex items-center justify-center gap-2 hover:bg-stone-800 transition-all active:scale-[0.98]"
-                            >
-                              Details
-                              <ArrowUpRight className="w-3 h-3" />
-                            </button>
+                          )}
+                          <div className="p-5 space-y-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="space-y-1.5">
+                                <h3 className="font-serif italic text-xl text-black leading-tight m-0">{place.name}</h3>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] font-semibold text-stone-400 uppercase tracking-[0.1em]">
+                                    {place.category}
+                                  </span>
+                                  {place.rating && (
+                                    <div className="flex items-center gap-0.5 text-amber-500">
+                                      <Star className="w-2.5 h-2.5 fill-current" />
+                                      <span className="text-[9px] font-bold">{place.rating}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => handleToggleFavorite(place.id)}
+                                className={cn(
+                                  "p-2.5 rounded-full transition-all active:scale-90 glass",
+                                  favorites.some(f => f.place_id === place.id) ? "text-rose-500 border-rose-100 bg-rose-50/50" : "text-stone-300 hover:text-stone-600"
+                                )}
+                              >
+                                <Heart className={cn("w-4 h-4", favorites.some(f => f.place_id === place.id) && "fill-current")} />
+                              </button>
+                            </div>
+                            
+                            <p className="text-[11px] text-stone-500 leading-relaxed font-normal line-clamp-2 m-0">{place.description}</p>
+                            
+                            <div className="pt-1">
+                              <button 
+                                onClick={() => setSelectedPlaceForDetail(place)}
+                                className="w-full py-3 bg-black text-white text-[10px] font-bold uppercase tracking-[0.15em] rounded-xl flex items-center justify-center gap-2 hover:bg-stone-800 transition-all active:scale-[0.98]"
+                              >
+                                Details
+                                <ArrowUpRight className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Popup>
-                  </Marker>
-                ))}
+                      </Popup>
+                    </Marker>
+                  ))}
 
-                {tempAiPin && (
-                  <Marker 
-                    position={[tempAiPin.lat, tempAiPin.lng]}
-                    icon={L.divIcon({
-                      className: 'custom-div-icon',
-                      html: `<div style="background-color: black; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-center; border: 2px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform: rotate(45deg);"><div style="transform: rotate(-45deg); color: white; font-size: 14px;">✨</div></div>`,
-                      iconSize: [32, 32],
-                      iconAnchor: [16, 32]
-                    })}
-                  >
-                    <Popup>
-                      <div className="p-2">
-                        <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">AI Recommendation</div>
-                        <div className="font-black text-black uppercase tracking-tight">{tempAiPin.name}</div>
-                        <button 
-                          onClick={() => setTempAiPin(null)}
-                          className="mt-2 text-[9px] font-black text-rose-500 uppercase tracking-widest hover:underline"
-                        >
-                          Remove Pin
-                        </button>
-                      </div>
-                    </Popup>
-                  </Marker>
-                )}
+                  {tempAiPin && (
+                    <Marker 
+                      position={[tempAiPin.lat, tempAiPin.lng]}
+                      icon={L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="background-color: black; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-center; border: 2px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform: rotate(45deg);"><div style="transform: rotate(-45deg); color: white; font-size: 14px;">✨</div></div>`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 32]
+                      })}
+                    >
+                      <Popup>
+                        <div className="p-2">
+                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">AI Recommendation</div>
+                          <div className="font-black text-black uppercase tracking-tight">{tempAiPin.name}</div>
+                          <button 
+                            onClick={() => setTempAiPin(null)}
+                            className="mt-2 text-[9px] font-black text-rose-500 uppercase tracking-widest hover:underline"
+                          >
+                            Remove Pin
+                          </button>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
 
-                {newPlacePos && newPlacePosition && newPlaceIcon && (
-                  <Marker 
-                    position={newPlacePosition} 
-                    icon={newPlaceIcon}
-                  />
-                )}
-              </MapContainer>
+                  {newPlacePos && newPlacePosition && newPlaceIcon && (
+                    <Marker 
+                      position={newPlacePosition} 
+                      icon={newPlaceIcon}
+                    />
+                  )}
+                </MapContainer>
+              )}
 
             </motion.div>
           )}
@@ -2732,12 +2736,12 @@ export default function App() {
                     <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Theme Settings</span>
                   </div>
                   <div className="space-y-4">
-                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Original + Tokyo Hybrid View</div>
+                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Original + Tokyo Miniature Preview</div>
                     <div className="grid grid-cols-2 gap-4">
                       {(Object.keys(MAP_THEMES) as MapThemeKey[]).map((styleKey) => (
                         <button
                           key={styleKey}
-                          onClick={() => setMapStyle(styleKey)}
+                          onClick={() => { if (styleKey === 'tokyo' && !maptilerKey) { showToast('VITE_MAPTILER_KEY を設定すると東京ミニチュア表示を確認できます。', 'info'); return; } setMapStyle(styleKey); }}
                           className={cn(
                             "p-6 border rounded-xl transition-all text-left space-y-2",
                             mapStyle === styleKey 
@@ -2765,39 +2769,34 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                  </div>
-
-                  {mapStyle === 'tokyo' && (
-                    <div className="space-y-4">
-                      <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Tokyo Camera Angle</div>
-                      <div className="grid grid-cols-3 gap-3">
-                        {([
-                          { key: 'top', label: 'Top', description: 'より真上' },
-                          { key: 'softTilt', label: 'Soft Tilt', description: '少し俯瞰' },
-                          { key: 'miniature', label: 'Miniature', description: '模型感を強める' },
-                        ] as { key: TokyoViewMode; label: string; description: string }[]).map((option) => (
-                          <button
-                            key={option.key}
-                            onClick={() => setTokyoViewMode(option.key)}
-                            className={cn(
-                              "rounded-2xl border px-4 py-4 text-left transition-all",
-                              tokyoViewMode === option.key
-                                ? "border-black bg-stone-950 text-white shadow-xl"
-                                : "border-stone-200 bg-white text-stone-900 hover:border-stone-400"
-                            )}
-                          >
-                            <div className="text-[11px] font-black uppercase tracking-[0.16em]">{option.label}</div>
-                            <div className={cn(
-                              "mt-2 text-[10px] font-medium",
-                              tokyoViewMode === option.key ? "text-stone-300" : "text-stone-500"
-                            )}>
-                              {option.description}
-                            </div>
-                          </button>
-                        ))}
+                    {mapStyle === 'tokyo' && (
+                      <div className="space-y-3 pt-1">
+                        <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Tokyo Camera Angle</div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {(Object.keys(TOKYO_ANGLE_PRESETS) as TokyoAnglePresetKey[]).map((presetKey) => (
+                            <button
+                              key={presetKey}
+                              onClick={() => setTokyoAnglePreset(presetKey)}
+                              className={cn(
+                                "p-4 border rounded-xl transition-all text-left space-y-1.5",
+                                tokyoAnglePreset === presetKey
+                                  ? "border-black bg-black text-white shadow-xl"
+                                  : "border-stone-200 bg-white text-black hover:border-black"
+                              )}
+                            >
+                              <div className="font-black text-[10px] uppercase tracking-[0.25em]">{TOKYO_ANGLE_PRESETS[presetKey].name}</div>
+                              <div className={cn(
+                                "text-[9px] leading-snug",
+                                tokyoAnglePreset === presetKey ? "text-stone-300" : "text-stone-400"
+                              )}>
+                                {TOKYO_ANGLE_PRESETS[presetKey].description}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 <div className="pt-4 space-y-2">
@@ -3924,7 +3923,7 @@ export default function App() {
                                 const lng = selectedPlaceForDetail.lng;
                                 setSelectedPlaceForDetail(null);
                                 setActiveTab('map');
-                                setTimeout(() => mapRef.current?.flyTo([lat, lng], 16), 100);
+                                setTimeout(() => flyToLocation(lat, lng, 16), 100);
                               }}
                               className="w-full py-5 bg-white border border-black text-black text-[10px] font-black uppercase tracking-[0.3em] hover:bg-stone-50 transition-colors flex items-center justify-center gap-2 rounded-xl"
                             >
