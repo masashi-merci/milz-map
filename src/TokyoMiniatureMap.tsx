@@ -368,7 +368,6 @@ export default function TokyoMiniatureMap({
         map.on('click', (event: any) => {
           if (role === 'admin' && activeTab === 'map' && isAdding) {
             setNewPlacePos({ lat: event.lngLat.lat, lng: event.lngLat.lng });
-            setIsAdding(false);
           }
         });
       })

@@ -1125,6 +1125,21 @@ export default function App() {
     setIsAdding(true);
   };
 
+  const handleStartAddSpot = () => {
+    if (isAdding) {
+      closeAddModal();
+      return;
+    }
+
+    setEditingPlace(null);
+    setSelectedFile(null);
+    setPreviewImage(null);
+    setModalAddress('');
+    setNewPlacePos(null);
+    setIsAdding(true);
+    showToast('地図をタップして場所を指定してください。', 'info');
+  };
+
   const handleDeletePlace = async (placeId: string) => {
     setConfirmModal({
       title: "スポットの削除",
@@ -2968,7 +2983,7 @@ export default function App() {
         {/* Floating Action Button (Admin Only) */}
         {role === 'admin' && activeTab === 'map' && (
           <button 
-            onClick={() => isAdding ? closeAddModal() : setIsAdding(true)}
+            onClick={handleStartAddSpot}
             className="absolute bottom-8 right-8 w-16 h-16 bg-stone-900 text-white shadow-2xl rounded-full flex items-center justify-center z-[1001] active:scale-95 transition-all hover:scale-110"
           >
             {isAdding ? <X className="w-8 h-8" /> : <Plus className="w-8 h-8" />}
@@ -3046,7 +3061,7 @@ export default function App() {
 
       {/* Add Spot Modal */}
       <AnimatePresence>
-        {isAdding && (
+        {(isAdding && (!!newPlacePos || !!editingPlace)) && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
