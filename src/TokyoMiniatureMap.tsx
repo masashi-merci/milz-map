@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import L from 'leaflet';
 
 export type TokyoAnglePreset = 'top' | 'soft' | 'miniature';
@@ -193,20 +193,6 @@ export default function TokyoMiniatureMap({
   const preset = TOKYO_ANGLE_PRESETS[anglePreset];
   const hasKey = Boolean(apiKey && apiKey.trim());
 
-  const mapReadyStyle = useMemo(
-    () => ({
-      container: containerRef.current,
-      style: 'streets-v2',
-      center: TOKYO_CENTER,
-      zoom: preset.zoom,
-      bearing: preset.bearing,
-      pitch: preset.pitch,
-      antialias: true,
-      attributionControl: false,
-    }),
-    [preset],
-  );
-
   useEffect(() => {
     if (!hasKey || !containerRef.current) return;
     let cancelled = false;
@@ -216,7 +202,16 @@ export default function TokyoMiniatureMap({
         if (cancelled || !containerRef.current) return;
         sdk.config.apiKey = apiKey;
 
-        const map = new sdk.Map(mapReadyStyle);
+        const map = new sdk.Map({
+          container: containerRef.current,
+          style: 'streets-v2',
+          center: TOKYO_CENTER,
+          zoom: preset.zoom,
+          bearing: preset.bearing,
+          pitch: preset.pitch,
+          antialias: true,
+          attributionControl: false,
+        });
         mapInstanceRef.current = map;
         mapRef.current = buildMapNavigator(map);
 
