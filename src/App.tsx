@@ -145,6 +145,86 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function parseUrlList(raw?: string | null): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function extractYouTubeVideoId(value?: string | null): string | null {
+  const raw = (value || '').trim();
+  if (!raw) return null;
+
+  if (/^[a-zA-Z0-9_-]{11}$/.test(raw)) {
+    return raw;
+  }
+
+  try {
+    const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const url = new URL(normalized);
+    const host = url.hostname.replace(/^www\./, '').replace(/^m\./, '');
+
+    if (host === 'youtu.be') {
+      return url.pathname.split('/').filter(Boolean)[0] || null;
+    }
+
+    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
+      if (url.pathname.startsWith('/watch')) {
+        return url.searchParams.get('v');
+      }
+      if (url.pathname.startsWith('/shorts/')) {
+        return url.pathname.split('/').filter(Boolean)[1] || null;
+      }
+      if (url.pathname.startsWith('/embed/')) {
+        return url.pathname.split('/').filter(Boolean)[1] || null;
+      }
+      if (url.pathname.startsWith('/live/')) {
+        return url.pathname.split('/').filter(Boolean)[1] || null;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getYouTubeEmbedUrl(value?: string | null): string | null {
+  const videoId = extractYouTubeVideoId(value);
+  if (!videoId) return null;
+  return `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`;
+}
+
+function VideoEmbed({ url, title }: { url: string; title: string }) {
+  const youtubeEmbedUrl = getYouTubeEmbedUrl(url);
+
+  if (youtubeEmbedUrl) {
+    return (
+      <iframe
+        src={youtubeEmbedUrl}
+        title={title}
+        className="w-full h-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        referrerPolicy="strict-origin-when-cross-origin"
+        allowFullScreen
+      />
+    );
+  }
+
+  return (
+    <video
+      src={url}
+      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+      controls
+      muted
+      loop
+      playsInline
+    />
+  );
+}
+
 // Fix Leaflet icon issue
 // @ts-ignore
 delete L.Icon.Default.prototype._getIconUrl;
@@ -1357,8 +1437,8 @@ export default function App() {
       const videos_raw = formData.get('videos') as string || (document.querySelector('textarea[name="videos"]') as HTMLTextAreaElement)?.value;
       const pdfs_raw = formData.get('pdfs') as string || (document.querySelector('textarea[name="pdfs"]') as HTMLTextAreaElement)?.value;
 
-      const images = images_raw ? images_raw.split(',').map(s => s.trim()).filter(Boolean) : [];
-      const videos = videos_raw ? videos_raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+      const images = parseUrlList(images_raw);
+      const videos = parseUrlList(videos_raw);
       
       let pdfs = [];
       try {
@@ -3237,14 +3317,15 @@ export default function App() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Short Videos (Comma separated URLs)</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs</label>
                         <textarea 
                           name="videos"
-                          rows={2}
-                          defaultValue={editingPlace?.videos?.join(', ') || ''}
-                          placeholder="https://video1.mp4, https://video2.mp4..."
+                          rows={3}
+                          defaultValue={editingPlace?.videos?.join('\n') || ''}
+                          placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                         />
+                        <p className="px-1 text-[11px] leading-relaxed text-stone-500">For now, MILZ stores YouTube links here. One URL per line is easiest. The same Supabase <code className="font-mono text-[10px]">videos</code> column is used, so no DB migration is needed.</p>
                       </div>
 
                       <div className="space-y-2">
@@ -3565,7 +3646,7 @@ export default function App() {
                     </section>
 
                     {/* Short Videos Section */}
-                    {selectedPlaceForDetail.videos && selectedPlaceForDetail.videos.length > 0 && (
+                    {(isEditingDetail || (selectedPlaceForDetail.videos && selectedPlaceForDetail.videos.length > 0)) && (
                       <section className="space-y-12">
                         <div className="flex items-center gap-4">
                           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-400">03</span>
@@ -3582,41 +3663,54 @@ export default function App() {
                             </h2>
                           )}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-6">
                           {isEditingDetail && (
-                            <div className="col-span-1">
-                              <DropZone 
-                                label="Add Short Videos" 
-                                onFilesDrop={(files) => handleFilesDrop(files, 'videos')}
-                                isLoading={uploading}
-                                className="h-full min-h-[300px]"
-                                accept="video/*"
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs</label>
+                              <textarea
+                                value={(editDetailForm.videos || []).join('\n')}
+                                onChange={(e) => setEditDetailForm({ ...editDetailForm, videos: parseUrlList(e.target.value) })}
+                                rows={4}
+                                placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
+                                className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                               />
+                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">Paste YouTube Shorts or normal YouTube video URLs. They are stored in Supabase using the existing <code className="font-mono text-[10px]">videos</code> text array.</p>
                             </div>
                           )}
-                          {(isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos)?.map((video, i) => (
-                            <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden">
-                              <video 
-                                src={video} 
-                                className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                                controls
-                                muted
-                                loop
-                              />
-                              <div className="absolute inset-0 pointer-events-none border-[20px] border-white/10 group-hover:border-white/0 transition-all duration-500" />
-                              {isEditingDetail && (
-                                <button 
-                                  onClick={() => {
-                                    const newVideos = (editDetailForm.videos || []).filter((_, idx) => idx !== i);
-                                    setEditDetailForm({ ...editDetailForm, videos: newVideos });
-                                  }}
-                                  className="absolute top-8 right-8 w-12 h-12 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"
-                                >
-                                  <X className="w-6 h-6" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            {(isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos)?.map((video, i) => {
+                              const youtubeEmbedUrl = getYouTubeEmbedUrl(video);
+                              return (
+                                <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden rounded-[28px]">
+                                  <VideoEmbed url={video} title={`${selectedPlaceForDetail.name} video ${i + 1}`} />
+                                  {!youtubeEmbedUrl && (
+                                    <div className="absolute inset-0 pointer-events-none border-[20px] border-white/10 group-hover:border-white/0 transition-all duration-500" />
+                                  )}
+                                  {isEditingDetail && (
+                                    <button 
+                                      onClick={() => {
+                                        const newVideos = (editDetailForm.videos || []).filter((_, idx) => idx !== i);
+                                        setEditDetailForm({ ...editDetailForm, videos: newVideos });
+                                      }}
+                                      className="absolute top-4 right-4 w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"
+                                    >
+                                      <X className="w-5 h-5" />
+                                    </button>
+                                  )}
+                                  {youtubeEmbedUrl && (
+                                    <a
+                                      href={video}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="absolute bottom-4 right-4 px-3 py-1.5 rounded-full bg-black/70 text-white text-[10px] font-bold uppercase tracking-[0.2em] backdrop-blur-sm z-10"
+                                    >
+                                      Open YouTube
+                                    </a>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </section>
                     )}
