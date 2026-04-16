@@ -313,6 +313,21 @@ export default function TokyoMiniatureMap({
   const hasKey = Boolean(apiKey && apiKey.trim());
   const preset = TOKYO_ANGLE_PRESETS[anglePreset];
   const styleTarget = useMemo(() => ({ anglePreset }), [anglePreset]);
+  const roleRef = useRef(role);
+  const activeTabRef = useRef(activeTab);
+  const isAddingRef = useRef(isAdding);
+
+  useEffect(() => {
+    roleRef.current = role;
+  }, [role]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    isAddingRef.current = isAdding;
+  }, [isAdding]);
 
   useEffect(() => {
     if (!hasKey || !containerRef.current) return;
@@ -366,7 +381,7 @@ export default function TokyoMiniatureMap({
         map.on('moveend', syncBounds);
 
         map.on('click', (event: any) => {
-          if (role === 'admin' && activeTab === 'map' && isAdding) {
+          if (roleRef.current === 'admin' && activeTabRef.current === 'map' && isAddingRef.current) {
             setNewPlacePos({ lat: event.lngLat.lat, lng: event.lngLat.lng });
           }
         });
