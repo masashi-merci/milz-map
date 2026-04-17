@@ -25,7 +25,7 @@ export interface MapNavigator {
 interface PlaceLike {
   id: string;
   name: string;
-  category: 'restaurant' | 'shop' | 'other';
+  category: string;
   lat: number;
   lng: number;
 }
@@ -66,6 +66,22 @@ const TERRAIN_SOURCE_URL = 'https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.
 
 let sdkLoader: Promise<any> | null = null;
 
+const CATEGORY_MARKER_STYLES: Record<string, { bg: string; fg: string; svg: string }> = {
+  'レストラン': { bg: '#111111', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>' },
+  'カフェ': { bg: '#4f3422', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>' },
+  '駅・交通': { bg: '#1d4ed8', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="12" rx="2"></rect><path d="M8 11h8"></path><path d="M12 15v4"></path><path d="M8 19l-2 2"></path><path d="M16 19l2 2"></path></svg>' },
+  '駐車場': { bg: '#0f766e', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h-3v16"></path><path d="M10 4h5a4 4 0 0 1 0 8h-5"></path></svg>' },
+  '公園・自然': { bg: '#166534', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M18 12v.2A3 3 0 0 1 16.9 18H13a3 3 0 0 1-1-5.8V12a3 3 0 0 1 6 0Z"></path><path d="M12 22v-3"></path><path d="M8 22v-2"></path><path d="M16 22v-2"></path></svg>' },
+  'ショッピング': { bg: '#7c3aed', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>' },
+  '学校': { bg: '#7c2d12', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 8-4 8 4"></path><path d="m18 10 2 1v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8l2-1"></path><path d="M14 22v-4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v4"></path></svg>' },
+  'コンビニ': { bg: '#be123c', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"></path><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"></path><path d="M2 7h20"></path></svg>' },
+  'その他': { bg: '#374151', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>' },
+  'restaurant': { bg: '#111111', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>' },
+  'cafe': { bg: '#4f3422', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>' },
+  'shop': { bg: '#7c3aed', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>' },
+  'other': { bg: '#374151', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>' },
+};
+
 function ensureMapTilerAssets() {
   if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'));
   if (window.maptilersdk) return Promise.resolve(window.maptilersdk);
@@ -99,14 +115,23 @@ function ensureMapTilerAssets() {
   return sdkLoader;
 }
 
-function createMarkerNode(kind: 'place' | 'ai' | 'new', label?: string) {
+function createMarkerNode(kind: 'place' | 'ai' | 'new', label?: string, category?: string) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'milz-maptiler-marker';
 
   const inner = document.createElement('span');
   inner.className = `milz-maptiler-marker__inner milz-maptiler-marker__inner--${kind}`;
-  inner.textContent = kind === 'ai' ? 'AI' : kind === 'new' ? '+' : '';
+
+  if (kind === 'place') {
+    const markerStyle = CATEGORY_MARKER_STYLES[category || ''] || CATEGORY_MARKER_STYLES['その他'];
+    inner.style.background = markerStyle.bg;
+    inner.style.color = markerStyle.fg;
+    inner.innerHTML = markerStyle.svg;
+  } else {
+    inner.textContent = kind === 'ai' ? 'AI' : kind === 'new' ? '+' : '';
+  }
+
   el.appendChild(inner);
 
   if (label && kind === 'place') {
@@ -432,7 +457,7 @@ export default function TokyoMiniatureMap({
     markerRefs.current = [];
 
     places.forEach((place) => {
-      const el = createMarkerNode('place');
+      const el = createMarkerNode('place', place.name, place.category);
       el.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();

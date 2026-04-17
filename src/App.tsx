@@ -253,7 +253,7 @@ interface Place {
   name: string;
   description?: string;
   detailed_description?: string;
-  category: 'restaurant' | 'shop' | 'other';
+  category: string;
   lat: number;
   lng: number;
   country?: string;
@@ -374,10 +374,18 @@ const CATEGORY_CONFIG: Record<string, { icon: any, color: string, bg: string }> 
   '学校': { icon: School, color: '#000000', bg: '#FFFFFF' },
   'コンビニ': { icon: Store, color: '#000000', bg: '#FFFFFF' },
   'その他': { icon: MoreHorizontal, color: '#000000', bg: '#FFFFFF' },
+  'restaurant': { icon: Utensils, color: '#000000', bg: '#FFFFFF' },
+  'cafe': { icon: Coffee, color: '#000000', bg: '#FFFFFF' },
+  'shop': { icon: ShoppingBag, color: '#000000', bg: '#FFFFFF' },
+  'other': { icon: MoreHorizontal, color: '#000000', bg: '#FFFFFF' },
 };
 
 const CATEGORY_ICONS_SVG: Record<string, string> = {
   'カフェ・レストラン': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>',
+  'レストラン': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>',
+  'カフェ': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>',
+  '駅・交通': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="12" rx="2"></rect><path d="M8 11h8"></path><path d="M12 15v4"></path><path d="M8 19l-2 2"></path><path d="M16 19l2 2"></path></svg>',
+  '駐車場': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h-3v16"></path><path d="M10 4h5a4 4 0 0 1 0 8h-5"></path></svg>',
   '観光スポット': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>',
   '公園・自然': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M18 12v.2A3 3 0 0 1 16.9 18H13a3 3 0 0 1-1-5.8V12a3 3 0 0 1 6 0Z"></path><path d="M12 22v-3"></path><path d="M8 22v-2"></path><path d="M16 22v-2"></path></svg>',
   'ショッピング': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>',
@@ -436,6 +444,8 @@ const getCustomIcon = (category: string, mapStyle: string) => {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [profileDisplayName, setProfileDisplayName] = useState('');
+  const [isSavingProfileName, setIsSavingProfileName] = useState(false);
   const [loading, setLoading] = useState(true);
   const [places, setPlaces] = useState<Place[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
@@ -557,6 +567,12 @@ export default function App() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    if (profileDisplayName.trim()) return;
+    setProfileDisplayName(user.email.split('@')[0] || 'User');
+  }, [user?.email, profileDisplayName]);
 
   // Add to debug logs
   const addLog = React.useCallback((msg: string) => {
@@ -709,7 +725,7 @@ export default function App() {
           return;
         }
 
-        const res = await fetch(`${url}/rest/v1/profiles?id=eq.${userId}&select=role`, {
+        const res = await fetch(`${url}/rest/v1/profiles?id=eq.${userId}&select=role,display_name`, {
           headers: {
             'apikey': key,
             'Authorization': `Bearer ${key}`
@@ -726,6 +742,8 @@ export default function App() {
               currentRole = 'admin';
             }
             setRole(currentRole);
+          setProfileDisplayName(profile.display_name || email?.split('@')[0] || 'User');
+            setProfileDisplayName(profile.display_name || userEmail?.split('@')[0] || 'User');
             return true;
           }
           addLog('fetchProfile: Raw API Success (No profile found)');
@@ -764,7 +782,7 @@ export default function App() {
 
       const fetchPromise = client
         .from('profiles')
-        .select('role')
+.select('role, display_name')
         .eq('id', userId)
         .maybeSingle();
 
@@ -808,6 +826,7 @@ export default function App() {
           
           if (!upsertError) {
             setRole(roleToSet);
+            setProfileDisplayName(email?.split('@')[0] || 'User');
           } else {
             console.error('App: Profile upsert error:', upsertError);
             addLog(`fetchProfile: Error upserting profile: ${upsertError.message}`);
@@ -832,6 +851,42 @@ export default function App() {
       addLog(`fetchProfile: Exception: ${msg}`);
     } finally {
       isFetchingProfileRef.current = false;
+    }
+  };
+
+  const handleSaveProfileName = async () => {
+    if (!user) return;
+    const trimmedName = profileDisplayName.trim();
+
+    if (!trimmedName) {
+      showToast('表示名を入力してください。', 'error');
+      return;
+    }
+
+    setIsSavingProfileName(true);
+
+    try {
+      const client = getSupabase();
+      if (!client) throw new Error('Supabase client unavailable');
+
+      const { error } = await client
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          email: user.email?.toLowerCase().trim(),
+          display_name: trimmedName,
+          role: role || 'user',
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      showToast('表示名を更新しました。', 'success');
+    } catch (error: any) {
+      console.error('Profile name save error:', error);
+      showToast(error?.message || '表示名の更新に失敗しました。', 'error');
+    } finally {
+      setIsSavingProfileName(false);
     }
   };
 
@@ -1934,7 +1989,7 @@ export default function App() {
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 transition-colors"
                     >
-                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
@@ -2078,10 +2133,10 @@ export default function App() {
                     )}
                   >
                     {isFiltering 
-                      ? <X className="w-5 h-5" /> 
+                      ? <X className="w-4 h-4" /> 
                       : (
                         <div className="relative">
-                          <SlidersHorizontal className="w-5 h-5" />
+                          <SlidersHorizontal className="w-4 h-4" />
                           {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || selectedCategory !== 'all') && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-black rounded-full border-2 border-white" />
                           )}
@@ -2566,33 +2621,43 @@ export default function App() {
                           { name: 'New York', country: 'US', state: 'NY', city: 'New York' },
                           { name: 'Tokyo', country: 'JP', state: '13', city: 'Tokyo' },
                           { name: 'Kyoto', country: 'JP', state: '26', city: 'Kyoto' },
-                          { name: 'Seoul', country: 'KR', state: '11', city: 'Seoul' }
-                        ].map((region) => (
-                          <button
-                            key={region.name}
-                            onClick={() => {
-                              const c = Country.getCountryByCode(region.country);
-                              const s = State.getStateByCodeAndCountry(region.state, region.country);
-                              setLocationFilter({
-                                countryCode: region.country,
-                                countryName: c?.name || '',
-                                stateCode: region.state,
-                                stateName: s?.name || '',
-                                cityCode: region.city,
-                                cityName: region.city,
-                              });
-                            }}
-                            className={cn(
-                              "px-6 py-3 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border",
-                              locationFilter.cityName === region.name
-                                ? "bg-black text-white border-black shadow-lg"
-                                : "bg-stone-50 text-stone-400 border-stone-100 hover:border-stone-300 hover:text-black"
-                            )}
-                          >
-                            <MapPin className="w-3 h-3" />
-                            {region.name}
-                          </button>
-                        ))}
+                          { name: 'Seoul', country: 'KR', state: '11', city: 'Seoul' },
+                          { name: 'Hawaii', country: 'US', state: 'HI', city: 'Honolulu' },
+                        ].map((region) => {
+                          const isRegionActive =
+                            locationFilter.countryCode === region.country &&
+                            locationFilter.stateCode === region.state &&
+                            (locationFilter.cityName === region.city ||
+                              locationFilter.cityName === region.name ||
+                              locationFilter.stateName === region.name);
+
+                          return (
+                            <button
+                              key={region.name}
+                              onClick={() => {
+                                const c = Country.getCountryByCode(region.country);
+                                const s = State.getStateByCodeAndCountry(region.state, region.country);
+                                setLocationFilter({
+                                  countryCode: region.country,
+                                  countryName: c?.name || '',
+                                  stateCode: region.state,
+                                  stateName: s?.name || '',
+                                  cityCode: region.city,
+                                  cityName: region.city,
+                                });
+                              }}
+                              className={cn(
+                                "px-6 py-3 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border",
+                                isRegionActive
+                                  ? "bg-black text-white border-black shadow-lg"
+                                  : "bg-stone-50 text-stone-400 border-stone-100 hover:border-stone-300 hover:text-black"
+                              )}
+                            >
+                              <MapPin className="w-3 h-3" />
+                              {region.name}
+                            </button>
+                          );
+                        })}
                       </div>
 
                       {/* Manual Inputs Grid */}
@@ -2798,7 +2863,7 @@ export default function App() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-serif font-bold text-black tracking-tight">{user.email?.split('@')[0]}</h2>
+                  <h2 className="text-3xl font-serif font-bold text-black tracking-tight">{profileDisplayName || user.email?.split('@')[0] || 'USER'}</h2>
                   <p className="text-stone-400 font-medium tracking-widest text-xs uppercase">{user.email}</p>
                 </div>
                 <div className="flex items-center justify-center gap-2">
@@ -2808,6 +2873,28 @@ export default function App() {
                   )}>
                     {role === 'admin' ? 'ADMINISTRATOR' : 'MEMBER'}
                   </span>
+                </div>
+                <div className="max-w-md mx-auto w-full space-y-3 text-left">
+                  <div className="flex items-center gap-2 px-1">
+                    <Pencil className="w-4 h-4 text-stone-400" />
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Display Name</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                      value={profileDisplayName}
+                      onChange={(e) => setProfileDisplayName(e.target.value)}
+                      placeholder="Enter your display name"
+                      className="flex-1 px-5 py-4 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all font-medium"
+                    />
+                    <button
+                      onClick={handleSaveProfileName}
+                      disabled={isSavingProfileName}
+                      className="px-6 py-4 rounded-2xl bg-black text-white text-[10px] font-black uppercase tracking-[0.28em] disabled:opacity-60 flex items-center justify-center gap-2 min-w-[128px]"
+                    >
+                      {isSavingProfileName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save
+                    </button>
+                  </div>
                 </div>
                 <div className="text-[9px] font-mono text-stone-400 bg-stone-50 p-4 border border-stone-100 rounded-lg break-all">
                   UID: {user.id}<br/>
@@ -3072,68 +3159,68 @@ export default function App() {
       </main>
 
       {/* Navigation */}
-      <div className="fixed bottom-8 left-6 right-6 z-[1001] pointer-events-none">
-        <nav className="max-w-2xl mx-auto bg-white/90 backdrop-blur-xl border border-stone-100 shadow-2xl rounded-[2rem] pointer-events-auto overflow-hidden">
-          <div className="px-8 py-4 flex items-center justify-between">
+      <div className="fixed bottom-5 left-4 right-4 z-[1001] pointer-events-none">
+        <nav className="max-w-xl mx-auto bg-white/88 backdrop-blur-xl border border-stone-200/70 shadow-[0_20px_50px_rgba(0,0,0,0.08)] rounded-[1.8rem] pointer-events-auto overflow-hidden">
+          <div className="px-5 py-2.5 flex items-center justify-between gap-2">
             <button 
               onClick={() => setActiveTab('map')}
               className={cn(
-                "flex flex-col items-center gap-1.5 transition-all group",
+                "flex flex-col items-center gap-1 transition-all group flex-1",
                 activeTab === 'map' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-2 rounded-2xl transition-all",
+                "p-1.5 rounded-[1rem] transition-all",
                 activeTab === 'map' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <MapIcon className="w-5 h-5" />
+                <MapIcon className="w-4 h-4" />
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider">Map</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">MAP</span>
             </button>
             <button 
               onClick={() => setActiveTab('list')}
               className={cn(
-                "flex flex-col items-center gap-1.5 transition-all group",
+                "flex flex-col items-center gap-1 transition-all group flex-1",
                 activeTab === 'list' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-2 rounded-2xl transition-all",
+                "p-1.5 rounded-[1rem] transition-all",
                 activeTab === 'list' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <ListIcon className="w-5 h-5" />
+                <ListIcon className="w-4 h-4" />
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider">List</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">SPOTS</span>
             </button>
             <button 
               onClick={() => setActiveTab('ai')}
               className={cn(
-                "flex flex-col items-center gap-1.5 transition-all group",
+                "flex flex-col items-center gap-1 transition-all group flex-1",
                 activeTab === 'ai' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-2 rounded-2xl transition-all",
+                "p-1.5 rounded-[1rem] transition-all",
                 activeTab === 'ai' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <Sparkles className="w-5 h-5" />
+                <Sparkles className="w-4 h-4" />
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider">AI</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">AI</span>
             </button>
             <button 
               onClick={() => setActiveTab('profile')}
               className={cn(
-                "flex flex-col items-center gap-1.5 transition-all group",
+                "flex flex-col items-center gap-1 transition-all group flex-1",
                 activeTab === 'profile' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-2 rounded-2xl transition-all",
+                "p-1.5 rounded-[1rem] transition-all",
                 activeTab === 'profile' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <UserIcon className="w-5 h-5" />
+                <UserIcon className="w-4 h-4" />
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider">Me</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">PROFILE</span>
             </button>
           </div>
         </nav>
@@ -3247,7 +3334,7 @@ export default function App() {
 
                     <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category / Marker</label>
                         <select 
                           name="category"
                           defaultValue={editingPlace?.category || 'その他'}
@@ -3257,6 +3344,7 @@ export default function App() {
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
                         </select>
+                        <p className="text-[10px] text-stone-400 leading-relaxed px-1">地図上のアイコンは、このカテゴリ設定にあわせて自動で切り替わります。</p>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Website</label>
@@ -3637,7 +3725,7 @@ export default function App() {
                                 }}
                                 className="absolute top-4 right-4 w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all opacity-0 group-hover:opacity-100"
                               >
-                                <X className="w-5 h-5" />
+                                <X className="w-4 h-4" />
                               </button>
                             )}
                           </div>
@@ -3694,7 +3782,7 @@ export default function App() {
                                       }}
                                       className="absolute top-4 right-4 w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"
                                     >
-                                      <X className="w-5 h-5" />
+                                      <X className="w-4 h-4" />
                                     </button>
                                   )}
                                   {youtubeEmbedUrl && (
