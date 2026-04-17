@@ -59,7 +59,7 @@ declare global {
   }
 }
 
-const TOKYO_CENTER: [number, number] = [139.7671, 35.6812];
+const TOKYO_CENTER: [number, number] = [35.6812, 139.7671];
 const MAPTILER_JS = 'https://cdn.maptiler.com/maptiler-sdk-js/v3.10.2/maptiler-sdk.umd.min.js';
 const MAPTILER_CSS = 'https://cdn.maptiler.com/maptiler-sdk-js/v3.10.2/maptiler-sdk.css';
 const TERRAIN_SOURCE_URL = 'https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json';
