@@ -338,6 +338,15 @@ export default function TokyoMiniatureMap({
   const hasKey = Boolean(apiKey && apiKey.trim());
   const preset = TOKYO_ANGLE_PRESETS[anglePreset];
   const styleTarget = useMemo(() => ({ anglePreset }), [anglePreset]);
+  const latestRoleRef = useRef(role);
+  const latestTabRef = useRef(activeTab);
+  const latestAddingRef = useRef(isAdding);
+
+  useEffect(() => {
+    latestRoleRef.current = role;
+    latestTabRef.current = activeTab;
+    latestAddingRef.current = isAdding;
+  }, [role, activeTab, isAdding]);
   const roleRef = useRef(role);
   const activeTabRef = useRef(activeTab);
   const isAddingRef = useRef(isAdding);

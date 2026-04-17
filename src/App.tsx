@@ -309,6 +309,65 @@ interface TempAiPin {
   lng: number;
   name: string;
 }
+interface AiFavoriteItem {
+  key: string;
+  name: string;
+  reason: string;
+  category: string;
+  lat: number;
+  lng: number;
+  created_at: string;
+}
+
+type Locale = "jp" | "en";
+
+const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
+
+const createAiFavoriteKey = (rec: { name: string; lat: number; lng: number }) =>
+  `${rec.name}::${rec.lat.toFixed(5)}::${rec.lng.toFixed(5)}`;
+
+const uiCopy: Record<Locale, Record<string, string>> = {
+  jp: {
+    map: 'MAP',
+    spots: 'SPOTS',
+    ai: 'AI',
+    profile: 'PROFILE',
+    aiEyebrow: 'MILZ AI DISCOVERY',
+    aiTitle: '選択した地域のおすすめを取得',
+    aiSubtitle: 'MILZが地域ごとに厳選した候補をまとめます。',
+    activeRegion: 'Active region',
+    regionHint: 'REGIONを切り替えると、MAPとAIの対象地域も切り替わります。',
+    currentScope: 'Current Scope',
+    getRecommendations: 'おすすめを取得',
+    recommendedSpots: 'AI Recommendations',
+    itemsFound: 'items found',
+    viewOnMap: 'View on MAP',
+    saveAi: 'AI Save',
+    savedAi: 'Saved',
+    aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
+    language: 'Language',
+  },
+  en: {
+    map: 'MAP',
+    spots: 'SPOTS',
+    ai: 'AI',
+    profile: 'PROFILE',
+    aiEyebrow: 'MILZ AI DISCOVERY',
+    aiTitle: 'Curated recommendations for your selected region',
+    aiSubtitle: 'MILZ assembles trusted AI suggestions by region.',
+    activeRegion: 'Active region',
+    regionHint: 'Changing the region also updates the target area for MAP and AI.',
+    currentScope: 'Current Scope',
+    getRecommendations: 'Get Recommendations',
+    recommendedSpots: 'AI Recommendations',
+    itemsFound: 'items found',
+    viewOnMap: 'View on MAP',
+    saveAi: 'Save',
+    savedAi: 'Saved',
+    aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
+    language: 'Language',
+  },
+};
 
 // Custom Map Events Component
 const TOKYO_CENTER: [number, number] = [35.6812, 139.7671];
@@ -449,6 +508,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [places, setPlaces] = useState<Place[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [aiFavorites, setAiFavorites] = useState<AiFavoriteItem[]>([]);
+  const [locale, setLocale] = useState<Locale>(() => {
+    if (typeof window === 'undefined') return 'jp';
+    const stored = window.localStorage.getItem('milz_locale');
+    return stored === 'en' ? 'en' : 'jp';
+  });
   const [activeTab, setActiveTab] = useState<Tab>('map');
   const [isAdding, setIsAdding] = useState(false);
   const [newPlacePos, setNewPlacePos] = useState<{ lat: number; lng: number } | null>(null);
@@ -589,6 +654,7 @@ export default function App() {
     return () => window.removeEventListener('supabase-debug-log', handleDiagLog);
   }, [addLog]);
   const [tempAiPin, setTempAiPin] = useState<TempAiPin | null>(null);
+  const [pendingMapFocus, setPendingMapFocus] = useState<{ lat: number; lng: number } | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'signin'>('signin');
   const [selectedAuthRole, setSelectedAuthRole] = useState<UserRole>('admin');
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -603,6 +669,7 @@ export default function App() {
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<MapNavigator | null>(null);
+  const t = (key: string) => uiCopy[locale][key] ?? key;
 
   const isPlaceholder = (val: string) => {
     if (!val) return false;
@@ -1625,63 +1692,36 @@ export default function App() {
       return;
     }
 
-    const client = getSupabase();
-    if (!client) return;
-
-    try {
-      // 1. Check if already exists
-      const { data: existingPlaces } = await client
-        .from('admin_places')
-        .select('id')
-        .eq('name', rec.name)
-        .eq('lat', rec.lat)
-        .eq('lng', rec.lng)
-        .maybeSingle();
-
-      let placeId = existingPlaces?.id;
-
-      if (!placeId) {
-        // 2. Create in admin_places
-        const { data: newPlace, error: createError } = await client
-          .from('admin_places')
-          .insert({
+    const key = createAiFavoriteKey(rec);
+    const exists = aiFavorites.some((item) => item.key === key);
+    const next = exists
+      ? aiFavorites.filter((item) => item.key !== key)
+      : [
+          {
+            key,
             name: rec.name,
-            description: rec.reason,
+            reason: rec.reason,
             category: rec.category,
             lat: rec.lat,
             lng: rec.lng,
-            created_by: user.id
-          })
-          .select()
-          .single();
+            created_at: new Date().toISOString(),
+          },
+          ...aiFavorites,
+        ];
 
-        if (createError) throw createError;
-        placeId = newPlace.id;
-        fetchPlaces(); // Refresh places to show on map
-      }
+    setAiFavorites(next);
 
-      // 3. Add to favorites
-      const { error: favError } = await client
-        .from('favorites')
-        .upsert({
-          user_id: user.id,
-          place_id: placeId
-        }, { onConflict: 'user_id,place_id' });
-
-      if (favError) throw favError;
-      showToast("お気に入りに保存しました！", "success");
-      fetchFavorites();
-    } catch (err: any) {
-      showToast("保存に失敗しました: " + err.message, "error");
+    if (typeof window !== 'undefined' && user?.id) {
+      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
     }
+
+    showToast(exists ? "AIおすすめを保存一覧から外しました。" : "AIおすすめを保存しました。", "success");
   };
 
   const handleViewOnMap = (rec: { name: string; lat: number; lng: number }) => {
     setTempAiPin({ lat: rec.lat, lng: rec.lng, name: rec.name });
+    setPendingMapFocus({ lat: rec.lat, lng: rec.lng });
     setActiveTab('map');
-    setTimeout(() => {
-      mapRef.current?.flyTo([rec.lat, rec.lng], 16);
-    }, 100);
   };
   const handleSearchLocation = async () => {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
@@ -1840,6 +1880,32 @@ export default function App() {
       setAiLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab !== 'map' || !pendingMapFocus) return;
+
+    let attempts = 0;
+    let cancelled = false;
+
+    const focusMap = () => {
+      if (cancelled) return;
+      if (mapRef.current) {
+        mapRef.current.flyTo([pendingMapFocus.lat, pendingMapFocus.lng], 16, { duration: 1.2 });
+        setPendingMapFocus(null);
+        return;
+      }
+      if (attempts < 20) {
+        attempts += 1;
+        window.setTimeout(focusMap, 180);
+      }
+    };
+
+    focusMap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, pendingMapFocus, mapStyle]);
 
   const filteredPlaces = useMemo(() => {
     return places.filter(p => {
@@ -2069,6 +2135,26 @@ export default function App() {
               >
                 <Loader2 className={cn("w-4 h-4 text-stone-400", isFetching && "animate-spin text-black")} />
               </button>
+              <div className="flex items-center rounded-full border border-stone-200 bg-stone-50 p-1 shadow-sm">
+                <button
+                  onClick={() => setLocale('jp')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all",
+                    locale === 'jp' ? "bg-black text-white" : "text-stone-400 hover:text-black"
+                  )}
+                >
+                  JP
+                </button>
+                <button
+                  onClick={() => setLocale('en')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all",
+                    locale === 'en' ? "bg-black text-white" : "text-stone-400 hover:text-black"
+                  )}
+                >
+                  EN
+                </button>
+              </div>
               <div className="h-4 w-px bg-stone-100" />
               <div className="relative">
                 <button 
@@ -2236,7 +2322,7 @@ export default function App() {
                           ))}
                         </select>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                           {/* State Select */}
                           <select
                             value={locationFilter.stateCode}
@@ -2591,10 +2677,10 @@ export default function App() {
                   <div className="relative z-10 space-y-4">
                     <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">MILZ AI DISCOVERY</p>
                     <h2 className="text-5xl font-black text-black leading-[1.1] tracking-tight max-w-2xl">
-                      Curated recommendations and real-time trends for your selected region.
+                      {t('aiTitle')}
                     </h2>
                     <p className="text-sm text-stone-400 font-medium max-w-xl">
-                      Keep discovery practical, premium, and easy to trust without decorative noise.
+                      {t('aiSubtitle')}
                     </p>
                   </div>
                   <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-stone-50/50 to-transparent pointer-events-none" />
@@ -2743,7 +2829,7 @@ export default function App() {
                         className="w-full p-10 bg-[#1A1A1A] text-white font-black rounded-[2.5rem] flex items-center justify-center gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50 tracking-[0.5em] text-xs hover:bg-black group"
                       >
                         {aiLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6 group-hover:scale-110 transition-transform" />}
-                        おすすめを取得 (WORLDWIDE)
+                        {t('getRecommendations')}
                       </button>
                     </div>
 
@@ -2753,8 +2839,8 @@ export default function App() {
                         {aiResults.recommendations && (
                           <section className="space-y-6">
                             <div className="flex items-center justify-between px-4">
-                              <h3 className="text-xs font-black text-stone-400 uppercase tracking-[0.4em]">Recommended Spots</h3>
-                              <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{aiResults.recommendations.length} items found</span>
+                              <h3 className="text-xs font-black text-stone-400 uppercase tracking-[0.4em]">{t('recommendedSpots')}</h3>
+                              <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{aiResults.recommendations.length} {t('itemsFound')}</span>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               {aiResults.recommendations.map((rec, i) => (
@@ -2779,14 +2865,19 @@ export default function App() {
                                       className="flex-1 py-4 bg-stone-50 hover:bg-black hover:text-white text-black rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all border border-stone-100"
                                     >
                                       <MapPin className="w-3 h-3" />
-                                      View on Map
+                                      {t('viewOnMap')}
                                     </button>
                                     <button
                                       onClick={() => handleSaveAiRecommendation(rec)}
-                                      className="px-6 py-4 border border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400 rounded-2xl transition-all flex items-center justify-center"
-                                      title="Save to Favorites"
+                                      className={cn(
+                                        "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
+                                        aiFavorites.some((item) => item.key === createAiFavoriteKey(rec))
+                                          ? "border-rose-200 bg-rose-50 text-rose-500"
+                                          : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
+                                      )}
+                                      title={t('saveAi')}
                                     >
-                                      <Heart className="w-4 h-4" />
+                                      <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey(rec)) && "fill-current")} />
                                     </button>
                                   </div>
                                 </motion.div>
@@ -2803,7 +2894,7 @@ export default function App() {
                     <div className="bg-white p-10 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-10 sticky top-24">
                       <div className="space-y-1">
                         <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">REGION SUMMARY</p>
-                        <h3 className="text-xl font-black text-black tracking-tight">Current Scope</h3>
+                        <h3 className="text-xl font-black text-black tracking-tight">{t('currentScope')}</h3>
                       </div>
 
                       <div className="space-y-8">
@@ -2832,8 +2923,7 @@ export default function App() {
 
                       <div className="pt-6 border-t border-stone-50">
                         <p className="text-[9px] font-medium text-stone-300 leading-relaxed">
-                          AI recommendations are generated based on the selected scope. 
-                          Accuracy may vary by region.
+                          {t('aiGeneratedNote')}
                         </p>
                       </div>
                     </div>
@@ -3135,6 +3225,10 @@ export default function App() {
                     <p className="text-2xl font-serif font-bold text-stone-900">{places.length}</p>
                     <p className="text-[10px] font-black text-stone-400 uppercase">Global Spots</p>
                   </div>
+                  <div className="bg-white p-6 border border-stone-100 shadow-sm rounded-2xl">
+                    <p className="text-2xl font-serif font-bold text-stone-900">{aiFavorites.length}</p>
+                    <p className="text-[10px] font-black text-stone-400 uppercase">AI Saves</p>
+                  </div>
                 </div>
               </div>
 
@@ -3175,7 +3269,7 @@ export default function App() {
               )}>
                 <MapIcon className="w-4 h-4" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">MAP</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('map')}</span>
             </button>
             <button 
               onClick={() => setActiveTab('list')}
@@ -3190,7 +3284,7 @@ export default function App() {
               )}>
                 <ListIcon className="w-4 h-4" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">SPOTS</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('spots')}</span>
             </button>
             <button 
               onClick={() => setActiveTab('ai')}
@@ -3205,7 +3299,7 @@ export default function App() {
               )}>
                 <Sparkles className="w-4 h-4" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">AI</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('ai')}</span>
             </button>
             <button 
               onClick={() => setActiveTab('profile')}
@@ -3220,7 +3314,7 @@ export default function App() {
               )}>
                 <UserIcon className="w-4 h-4" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">PROFILE</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('profile')}</span>
             </button>
           </div>
         </nav>
