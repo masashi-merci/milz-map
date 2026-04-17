@@ -615,6 +615,7 @@ export default function App() {
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
+  const [aiResultsLocale, setAiResultsLocale] = useState<Locale | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showSqlModal, setShowSqlModal] = useState(false);
@@ -1786,6 +1787,7 @@ export default function App() {
       const locationStr = `${countryName} ${stateName} ${cityName}`.trim() || "Worldwide";
       const type = 'recommend';
       const category = 'all';
+      const locationCacheKey = `${locationStr}::${locale}`;
 
       // 1. キャッシュの確認
       if (client) {
@@ -1793,7 +1795,7 @@ export default function App() {
           .from('ai_cache')
           .select('*')
           .eq('type', type)
-          .eq('location_key', locationStr)
+          .eq('location_key', locationCacheKey)
           .eq('category', category)
           .maybeSingle();
 
@@ -1806,8 +1808,9 @@ export default function App() {
           const cacheLimit = 336;
 
           if (diffHours < cacheLimit) {
-            console.log(`Using cached ${type} for ${locationStr}`);
+            console.log(`Using cached ${type} for ${locationStr} (${locale})`);
             setAiResults(cacheData.data);
+            setAiResultsLocale(locale);
             setAiLoading(false);
             return;
           }
@@ -1822,9 +1825,11 @@ export default function App() {
       }
       const ai = new GoogleGenAI({ apiKey });
 
-      let prompt = `Based on the location "${locationStr}", 
-      recommend 10 interesting spots (restaurants, shops, landmarks) in this area. 
-      Return in JSON format.`;
+      const outputLanguageInstruction = locale === 'jp'
+        ? 'Write the reason and category fields in natural Japanese. Keep place names in their commonly used local names.'
+        : 'Write the reason and category fields in natural English. Keep place names in their commonly used local names.';
+
+      let prompt = `Based on the location "${locationStr}", recommend 10 interesting spots (restaurants, shops, landmarks) in this area. ${outputLanguageInstruction} Return ONLY valid JSON that matches the requested schema.`;
 
       let responseSchema = {
         type: Type.OBJECT,
@@ -1859,6 +1864,7 @@ export default function App() {
 
       const results = JSON.parse(response.text);
       setAiResults(results);
+      setAiResultsLocale(locale);
 
       // 3. 結果をキャッシュに保存（upsert）
       if (client) {
@@ -1866,7 +1872,7 @@ export default function App() {
           .from('ai_cache')
           .upsert({
             type,
-            location_key: locationStr,
+            location_key: locationCacheKey,
             category,
             data: results,
             updated_at: new Date().toISOString()
@@ -1875,7 +1881,7 @@ export default function App() {
 
     } catch (error) {
       console.error('AI error:', error);
-      showToast("AI生成中にエラーが発生しました。", "error");
+      showToast(locale === "jp" ? "AI生成中にエラーが発生しました。" : "An error occurred while generating AI recommendations.", "error");
     } finally {
       setAiLoading(false);
     }
@@ -1906,6 +1912,12 @@ export default function App() {
       cancelled = true;
     };
   }, [activeTab, pendingMapFocus, mapStyle]);
+
+  useEffect(() => {
+    if (activeTab !== 'ai') return;
+    if (!aiResults || !aiResultsLocale || aiResultsLocale === locale || aiLoading) return;
+    handleAiRecommend();
+  }, [locale]);
 
   const filteredPlaces = useMemo(() => {
     return places.filter(p => {

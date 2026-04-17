@@ -291,17 +291,31 @@ function add3dBuildings(map: any, preset: TokyoAnglePreset) {
   }
 }
 
-function applyMiniaturePresentation(map: any, apiKey: string, presetKey: TokyoAnglePreset, instant = false) {
+function applyMiniaturePresentation(
+  map: any,
+  apiKey: string,
+  presetKey: TokyoAnglePreset,
+  options: { instant?: boolean; preserveCenter?: boolean } = {},
+) {
   const preset = TOKYO_ANGLE_PRESETS[presetKey];
-  const duration = instant ? 0 : 1100;
+  const duration = options.instant ? 0 : 1100;
 
   addAtmosphere(map, presetKey);
   addTerrain(map, apiKey, presetKey);
   add3dBuildings(map, presetKey);
 
   try {
+    const currentCenter = map.getCenter?.();
+    const hasMeaningfulCurrentCenter =
+      currentCenter &&
+      (Math.abs(currentCenter.lat - TOKYO_CENTER[0]) > 0.0001 || Math.abs(currentCenter.lng - TOKYO_CENTER[1]) > 0.0001);
+
+    const targetCenter = options.preserveCenter || hasMeaningfulCurrentCenter
+      ? [currentCenter.lng, currentCenter.lat]
+      : [TOKYO_CENTER[1], TOKYO_CENTER[0]];
+
     map.easeTo({
-      center: TOKYO_CENTER,
+      center: targetCenter,
       zoom: preset.zoom,
       pitch: preset.pitch,
       bearing: preset.bearing,
@@ -375,7 +389,7 @@ export default function TokyoMiniatureMap({
         const map = new sdk.Map({
           container: containerRef.current,
           style: resolveStyle(sdk, anglePreset),
-          center: TOKYO_CENTER,
+          center: [TOKYO_CENTER[1], TOKYO_CENTER[0]],
           zoom: preset.zoom,
           bearing: preset.bearing,
           pitch: preset.pitch,
@@ -400,12 +414,12 @@ export default function TokyoMiniatureMap({
         };
 
         map.on('load', () => {
-          applyMiniaturePresentation(map, apiKey!, anglePreset, true);
+          applyMiniaturePresentation(map, apiKey!, anglePreset, { instant: true, preserveCenter: false });
           syncBounds();
         });
 
         map.on('style.load', () => {
-          applyMiniaturePresentation(map, apiKey!, anglePreset, true);
+          applyMiniaturePresentation(map, apiKey!, anglePreset, { instant: true, preserveCenter: true });
         });
 
         map.on('idle', () => {
@@ -445,7 +459,7 @@ export default function TokyoMiniatureMap({
 
     map.setStyle(resolveStyle(sdk, styleTarget.anglePreset));
     map.once('style.load', () => {
-      applyMiniaturePresentation(map, apiKey!, styleTarget.anglePreset, false);
+      applyMiniaturePresentation(map, apiKey!, styleTarget.anglePreset, { preserveCenter: true });
     });
   }, [apiKey, hasKey, styleTarget]);
 
@@ -454,7 +468,7 @@ export default function TokyoMiniatureMap({
     if (!map || !hasKey) return;
     map.setMinZoom?.(preset.minZoom);
     map.setMaxZoom?.(preset.maxZoom);
-    applyMiniaturePresentation(map, apiKey!, anglePreset, false);
+    applyMiniaturePresentation(map, apiKey!, anglePreset, { preserveCenter: true });
   }, [anglePreset, apiKey, hasKey, preset]);
 
   useEffect(() => {
