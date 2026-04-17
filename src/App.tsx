@@ -139,90 +139,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Country, State, City } from 'country-state-city';
 import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey } from './illustrationMaps';
 import TokyoMiniatureMap, { TOKYO_ANGLE_PRESETS, type TokyoAnglePreset, type MapNavigator } from './TokyoMiniatureMap';
+import MilzLanding from './MilzLanding';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-function parseUrlList(raw?: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function extractYouTubeVideoId(value?: string | null): string | null {
-  const raw = (value || '').trim();
-  if (!raw) return null;
-
-  if (/^[a-zA-Z0-9_-]{11}$/.test(raw)) {
-    return raw;
-  }
-
-  try {
-    const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-    const url = new URL(normalized);
-    const host = url.hostname.replace(/^www\./, '').replace(/^m\./, '');
-
-    if (host === 'youtu.be') {
-      return url.pathname.split('/').filter(Boolean)[0] || null;
-    }
-
-    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
-      if (url.pathname.startsWith('/watch')) {
-        return url.searchParams.get('v');
-      }
-      if (url.pathname.startsWith('/shorts/')) {
-        return url.pathname.split('/').filter(Boolean)[1] || null;
-      }
-      if (url.pathname.startsWith('/embed/')) {
-        return url.pathname.split('/').filter(Boolean)[1] || null;
-      }
-      if (url.pathname.startsWith('/live/')) {
-        return url.pathname.split('/').filter(Boolean)[1] || null;
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-}
-
-function getYouTubeEmbedUrl(value?: string | null): string | null {
-  const videoId = extractYouTubeVideoId(value);
-  if (!videoId) return null;
-  return `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`;
-}
-
-function VideoEmbed({ url, title }: { url: string; title: string }) {
-  const youtubeEmbedUrl = getYouTubeEmbedUrl(url);
-
-  if (youtubeEmbedUrl) {
-    return (
-      <iframe
-        src={youtubeEmbedUrl}
-        title={title}
-        className="w-full h-full"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        referrerPolicy="strict-origin-when-cross-origin"
-        allowFullScreen
-      />
-    );
-  }
-
-  return (
-    <video
-      src={url}
-      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-      controls
-      muted
-      loop
-      playsInline
-    />
-  );
 }
 
 // Fix Leaflet icon issue
@@ -253,7 +174,7 @@ interface Place {
   name: string;
   description?: string;
   detailed_description?: string;
-  category: string;
+  category: 'restaurant' | 'shop' | 'other';
   lat: number;
   lng: number;
   country?: string;
@@ -309,65 +230,6 @@ interface TempAiPin {
   lng: number;
   name: string;
 }
-interface AiFavoriteItem {
-  key: string;
-  name: string;
-  reason: string;
-  category: string;
-  lat: number;
-  lng: number;
-  created_at: string;
-}
-
-type Locale = "jp" | "en";
-
-const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
-
-const createAiFavoriteKey = (rec: { name: string; lat: number; lng: number }) =>
-  `${rec.name}::${rec.lat.toFixed(5)}::${rec.lng.toFixed(5)}`;
-
-const uiCopy: Record<Locale, Record<string, string>> = {
-  jp: {
-    map: 'MAP',
-    spots: 'SPOTS',
-    ai: 'AI',
-    profile: 'PROFILE',
-    aiEyebrow: 'MILZ AI DISCOVERY',
-    aiTitle: '選択した地域のおすすめを取得',
-    aiSubtitle: 'MILZが地域ごとに厳選した候補をまとめます。',
-    activeRegion: 'Active region',
-    regionHint: 'REGIONを切り替えると、MAPとAIの対象地域も切り替わります。',
-    currentScope: 'Current Scope',
-    getRecommendations: 'おすすめを取得',
-    recommendedSpots: 'AI Recommendations',
-    itemsFound: 'items found',
-    viewOnMap: 'View on MAP',
-    saveAi: 'AI Save',
-    savedAi: 'Saved',
-    aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
-    language: 'Language',
-  },
-  en: {
-    map: 'MAP',
-    spots: 'SPOTS',
-    ai: 'AI',
-    profile: 'PROFILE',
-    aiEyebrow: 'MILZ AI DISCOVERY',
-    aiTitle: 'Curated recommendations for your selected region',
-    aiSubtitle: 'MILZ assembles trusted AI suggestions by region.',
-    activeRegion: 'Active region',
-    regionHint: 'Changing the region also updates the target area for MAP and AI.',
-    currentScope: 'Current Scope',
-    getRecommendations: 'Get Recommendations',
-    recommendedSpots: 'AI Recommendations',
-    itemsFound: 'items found',
-    viewOnMap: 'View on MAP',
-    saveAi: 'Save',
-    savedAi: 'Saved',
-    aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
-    language: 'Language',
-  },
-};
 
 // Custom Map Events Component
 const TOKYO_CENTER: [number, number] = [35.6812, 139.7671];
@@ -433,18 +295,10 @@ const CATEGORY_CONFIG: Record<string, { icon: any, color: string, bg: string }> 
   '学校': { icon: School, color: '#000000', bg: '#FFFFFF' },
   'コンビニ': { icon: Store, color: '#000000', bg: '#FFFFFF' },
   'その他': { icon: MoreHorizontal, color: '#000000', bg: '#FFFFFF' },
-  'restaurant': { icon: Utensils, color: '#000000', bg: '#FFFFFF' },
-  'cafe': { icon: Coffee, color: '#000000', bg: '#FFFFFF' },
-  'shop': { icon: ShoppingBag, color: '#000000', bg: '#FFFFFF' },
-  'other': { icon: MoreHorizontal, color: '#000000', bg: '#FFFFFF' },
 };
 
 const CATEGORY_ICONS_SVG: Record<string, string> = {
   'カフェ・レストラン': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>',
-  'レストラン': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>',
-  'カフェ': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>',
-  '駅・交通': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="12" rx="2"></rect><path d="M8 11h8"></path><path d="M12 15v4"></path><path d="M8 19l-2 2"></path><path d="M16 19l2 2"></path></svg>',
-  '駐車場': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h-3v16"></path><path d="M10 4h5a4 4 0 0 1 0 8h-5"></path></svg>',
   '観光スポット': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>',
   '公園・自然': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M18 12v.2A3 3 0 0 1 16.9 18H13a3 3 0 0 1-1-5.8V12a3 3 0 0 1 6 0Z"></path><path d="M12 22v-3"></path><path d="M8 22v-2"></path><path d="M16 22v-2"></path></svg>',
   'ショッピング': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>',
@@ -503,17 +357,9 @@ const getCustomIcon = (category: string, mapStyle: string) => {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<UserRole | null>(null);
-  const [profileDisplayName, setProfileDisplayName] = useState('');
-  const [isSavingProfileName, setIsSavingProfileName] = useState(false);
   const [loading, setLoading] = useState(true);
   const [places, setPlaces] = useState<Place[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
-  const [aiFavorites, setAiFavorites] = useState<AiFavoriteItem[]>([]);
-  const [locale, setLocale] = useState<Locale>(() => {
-    if (typeof window === 'undefined') return 'jp';
-    const stored = window.localStorage.getItem('milz_locale');
-    return stored === 'en' ? 'en' : 'jp';
-  });
   const [activeTab, setActiveTab] = useState<Tab>('map');
   const [isAdding, setIsAdding] = useState(false);
   const [newPlacePos, setNewPlacePos] = useState<{ lat: number; lng: number } | null>(null);
@@ -615,7 +461,6 @@ export default function App() {
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
-  const [aiResultsLocale, setAiResultsLocale] = useState<Locale | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showSqlModal, setShowSqlModal] = useState(false);
@@ -634,12 +479,6 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  useEffect(() => {
-    if (!user?.email) return;
-    if (profileDisplayName.trim()) return;
-    setProfileDisplayName(user.email.split('@')[0] || 'User');
-  }, [user?.email, profileDisplayName]);
-
   // Add to debug logs
   const addLog = React.useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -655,7 +494,6 @@ export default function App() {
     return () => window.removeEventListener('supabase-debug-log', handleDiagLog);
   }, [addLog]);
   const [tempAiPin, setTempAiPin] = useState<TempAiPin | null>(null);
-  const [pendingMapFocus, setPendingMapFocus] = useState<{ lat: number; lng: number } | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'signin'>('signin');
   const [selectedAuthRole, setSelectedAuthRole] = useState<UserRole>('admin');
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -663,6 +501,7 @@ export default function App() {
   const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [landingAuthOpen, setLandingAuthOpen] = useState(false);
 
   const [uploading, setUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -670,7 +509,6 @@ export default function App() {
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<MapNavigator | null>(null);
-  const t = (key: string) => uiCopy[locale][key] ?? key;
 
   const isPlaceholder = (val: string) => {
     if (!val) return false;
@@ -793,7 +631,7 @@ export default function App() {
           return;
         }
 
-        const res = await fetch(`${url}/rest/v1/profiles?id=eq.${userId}&select=role,display_name`, {
+        const res = await fetch(`${url}/rest/v1/profiles?id=eq.${userId}&select=role`, {
           headers: {
             'apikey': key,
             'Authorization': `Bearer ${key}`
@@ -810,8 +648,6 @@ export default function App() {
               currentRole = 'admin';
             }
             setRole(currentRole);
-          setProfileDisplayName(profile.display_name || email?.split('@')[0] || 'User');
-            setProfileDisplayName(profile.display_name || userEmail?.split('@')[0] || 'User');
             return true;
           }
           addLog('fetchProfile: Raw API Success (No profile found)');
@@ -850,7 +686,7 @@ export default function App() {
 
       const fetchPromise = client
         .from('profiles')
-.select('role, display_name')
+        .select('role')
         .eq('id', userId)
         .maybeSingle();
 
@@ -894,7 +730,6 @@ export default function App() {
           
           if (!upsertError) {
             setRole(roleToSet);
-            setProfileDisplayName(email?.split('@')[0] || 'User');
           } else {
             console.error('App: Profile upsert error:', upsertError);
             addLog(`fetchProfile: Error upserting profile: ${upsertError.message}`);
@@ -919,42 +754,6 @@ export default function App() {
       addLog(`fetchProfile: Exception: ${msg}`);
     } finally {
       isFetchingProfileRef.current = false;
-    }
-  };
-
-  const handleSaveProfileName = async () => {
-    if (!user) return;
-    const trimmedName = profileDisplayName.trim();
-
-    if (!trimmedName) {
-      showToast('表示名を入力してください。', 'error');
-      return;
-    }
-
-    setIsSavingProfileName(true);
-
-    try {
-      const client = getSupabase();
-      if (!client) throw new Error('Supabase client unavailable');
-
-      const { error } = await client
-        .from('profiles')
-        .upsert({
-          id: user.id,
-          email: user.email?.toLowerCase().trim(),
-          display_name: trimmedName,
-          role: role || 'user',
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' });
-
-      if (error) throw error;
-
-      showToast('表示名を更新しました。', 'success');
-    } catch (error: any) {
-      console.error('Profile name save error:', error);
-      showToast(error?.message || '表示名の更新に失敗しました。', 'error');
-    } finally {
-      setIsSavingProfileName(false);
     }
   };
 
@@ -1560,8 +1359,8 @@ export default function App() {
       const videos_raw = formData.get('videos') as string || (document.querySelector('textarea[name="videos"]') as HTMLTextAreaElement)?.value;
       const pdfs_raw = formData.get('pdfs') as string || (document.querySelector('textarea[name="pdfs"]') as HTMLTextAreaElement)?.value;
 
-      const images = parseUrlList(images_raw);
-      const videos = parseUrlList(videos_raw);
+      const images = images_raw ? images_raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+      const videos = videos_raw ? videos_raw.split(',').map(s => s.trim()).filter(Boolean) : [];
       
       let pdfs = [];
       try {
@@ -1693,36 +1492,63 @@ export default function App() {
       return;
     }
 
-    const key = createAiFavoriteKey(rec);
-    const exists = aiFavorites.some((item) => item.key === key);
-    const next = exists
-      ? aiFavorites.filter((item) => item.key !== key)
-      : [
-          {
-            key,
+    const client = getSupabase();
+    if (!client) return;
+
+    try {
+      // 1. Check if already exists
+      const { data: existingPlaces } = await client
+        .from('admin_places')
+        .select('id')
+        .eq('name', rec.name)
+        .eq('lat', rec.lat)
+        .eq('lng', rec.lng)
+        .maybeSingle();
+
+      let placeId = existingPlaces?.id;
+
+      if (!placeId) {
+        // 2. Create in admin_places
+        const { data: newPlace, error: createError } = await client
+          .from('admin_places')
+          .insert({
             name: rec.name,
-            reason: rec.reason,
+            description: rec.reason,
             category: rec.category,
             lat: rec.lat,
             lng: rec.lng,
-            created_at: new Date().toISOString(),
-          },
-          ...aiFavorites,
-        ];
+            created_by: user.id
+          })
+          .select()
+          .single();
 
-    setAiFavorites(next);
+        if (createError) throw createError;
+        placeId = newPlace.id;
+        fetchPlaces(); // Refresh places to show on map
+      }
 
-    if (typeof window !== 'undefined' && user?.id) {
-      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
+      // 3. Add to favorites
+      const { error: favError } = await client
+        .from('favorites')
+        .upsert({
+          user_id: user.id,
+          place_id: placeId
+        }, { onConflict: 'user_id,place_id' });
+
+      if (favError) throw favError;
+      showToast("お気に入りに保存しました！", "success");
+      fetchFavorites();
+    } catch (err: any) {
+      showToast("保存に失敗しました: " + err.message, "error");
     }
-
-    showToast(exists ? "AIおすすめを保存一覧から外しました。" : "AIおすすめを保存しました。", "success");
   };
 
   const handleViewOnMap = (rec: { name: string; lat: number; lng: number }) => {
     setTempAiPin({ lat: rec.lat, lng: rec.lng, name: rec.name });
-    setPendingMapFocus({ lat: rec.lat, lng: rec.lng });
     setActiveTab('map');
+    setTimeout(() => {
+      mapRef.current?.flyTo([rec.lat, rec.lng], 16);
+    }, 100);
   };
   const handleSearchLocation = async () => {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
@@ -1787,7 +1613,6 @@ export default function App() {
       const locationStr = `${countryName} ${stateName} ${cityName}`.trim() || "Worldwide";
       const type = 'recommend';
       const category = 'all';
-      const locationCacheKey = `${locationStr}::${locale}`;
 
       // 1. キャッシュの確認
       if (client) {
@@ -1795,7 +1620,7 @@ export default function App() {
           .from('ai_cache')
           .select('*')
           .eq('type', type)
-          .eq('location_key', locationCacheKey)
+          .eq('location_key', locationStr)
           .eq('category', category)
           .maybeSingle();
 
@@ -1808,9 +1633,8 @@ export default function App() {
           const cacheLimit = 336;
 
           if (diffHours < cacheLimit) {
-            console.log(`Using cached ${type} for ${locationStr} (${locale})`);
+            console.log(`Using cached ${type} for ${locationStr}`);
             setAiResults(cacheData.data);
-            setAiResultsLocale(locale);
             setAiLoading(false);
             return;
           }
@@ -1825,11 +1649,9 @@ export default function App() {
       }
       const ai = new GoogleGenAI({ apiKey });
 
-      const outputLanguageInstruction = locale === 'jp'
-        ? 'Write the reason and category fields in natural Japanese. Keep place names in their commonly used local names.'
-        : 'Write the reason and category fields in natural English. Keep place names in their commonly used local names.';
-
-      let prompt = `Based on the location "${locationStr}", recommend 10 interesting spots (restaurants, shops, landmarks) in this area. ${outputLanguageInstruction} Return ONLY valid JSON that matches the requested schema.`;
+      let prompt = `Based on the location "${locationStr}", 
+      recommend 10 interesting spots (restaurants, shops, landmarks) in this area. 
+      Return in JSON format.`;
 
       let responseSchema = {
         type: Type.OBJECT,
@@ -1864,7 +1686,6 @@ export default function App() {
 
       const results = JSON.parse(response.text);
       setAiResults(results);
-      setAiResultsLocale(locale);
 
       // 3. 結果をキャッシュに保存（upsert）
       if (client) {
@@ -1872,7 +1693,7 @@ export default function App() {
           .from('ai_cache')
           .upsert({
             type,
-            location_key: locationCacheKey,
+            location_key: locationStr,
             category,
             data: results,
             updated_at: new Date().toISOString()
@@ -1881,43 +1702,11 @@ export default function App() {
 
     } catch (error) {
       console.error('AI error:', error);
-      showToast(locale === "jp" ? "AI生成中にエラーが発生しました。" : "An error occurred while generating AI recommendations.", "error");
+      showToast("AI生成中にエラーが発生しました。", "error");
     } finally {
       setAiLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (activeTab !== 'map' || !pendingMapFocus) return;
-
-    let attempts = 0;
-    let cancelled = false;
-
-    const focusMap = () => {
-      if (cancelled) return;
-      if (mapRef.current) {
-        mapRef.current.flyTo([pendingMapFocus.lat, pendingMapFocus.lng], 16, { duration: 1.2 });
-        setPendingMapFocus(null);
-        return;
-      }
-      if (attempts < 20) {
-        attempts += 1;
-        window.setTimeout(focusMap, 180);
-      }
-    };
-
-    focusMap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, pendingMapFocus, mapStyle]);
-
-  useEffect(() => {
-    if (activeTab !== 'ai') return;
-    if (!aiResults || !aiResultsLocale || aiResultsLocale === locale || aiLoading) return;
-    handleAiRecommend();
-  }, [locale]);
 
   const filteredPlaces = useMemo(() => {
     return places.filter(p => {
@@ -1982,144 +1771,22 @@ export default function App() {
   // Login Screen
   if (!user) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-stone-50 p-6">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-white p-12 text-center space-y-10 border border-stone-200 shadow-2xl"
-        >
-          <div className="flex flex-col items-center gap-8">
-            <div className={cn(
-              "w-24 h-24 flex items-center justify-center shadow-2xl transition-all duration-500",
-              selectedAuthRole === 'admin' ? "bg-black" : "bg-stone-400"
-            )}>
-              {selectedAuthRole === 'admin' ? <ShieldCheck className="w-12 h-12 text-white" /> : <MapPin className="w-12 h-12 text-white" />}
-            </div>
-            <div>
-              <h1 className="text-5xl font-black tracking-tighter text-black uppercase">milz</h1>
-              <p className="text-stone-400 mt-4 font-black uppercase tracking-[0.3em] text-[10px]">
-                {selectedAuthRole === 'admin' ? 'Admin Portal' : 'Personal Map Bookmark'}
-              </p>
-            </div>
-          </div>
-
-          {/* Role Selector */}
-          <div className="flex p-0 bg-stone-100 border border-stone-200">
-            <button 
-              onClick={() => setSelectedAuthRole('user')}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-3 py-4 font-black uppercase tracking-widest text-[10px] transition-all",
-                selectedAuthRole === 'user' ? "bg-black text-white" : "text-stone-400 hover:text-black"
-              )}
-            >
-              <UserIcon className="w-4 h-4" />
-              User
-            </button>
-            <button 
-              onClick={() => setSelectedAuthRole('admin')}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-3 py-4 font-black uppercase tracking-widest text-[10px] transition-all",
-                selectedAuthRole === 'admin' ? "bg-black text-white" : "text-stone-400 hover:text-black"
-              )}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              Admin
-            </button>
-          </div>
-
-          <AnimatePresence mode="wait">
-            <motion.div
-              key="email"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-4 text-left"
-            >
-              <form onSubmit={handleEmailAuth} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Email Address</label>
-                  <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                    <input 
-                      type="email" 
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
-                      className="w-full pl-12 pr-4 py-4 bg-stone-50 border border-stone-200 focus:border-black focus:bg-white outline-none transition-all font-medium"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Password</label>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                    <input 
-                      type={showPassword ? "text" : "password"} 
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-12 pr-12 py-4 bg-stone-50 border border-stone-200 focus:border-black focus:bg-white outline-none transition-all font-medium"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {authError && (
-                  <p className="text-xs text-red-500 font-bold px-1">{authError}</p>
-                )}
-
-                <button 
-                  type="submit"
-                  className={cn(
-                    "w-full py-6 text-white font-black uppercase tracking-[0.4em] text-xs active:scale-95 transition-all shadow-2xl",
-                    selectedAuthRole === 'admin' ? "bg-black hover:bg-stone-800" : "bg-stone-900 hover:bg-black"
-                  )}
-                >
-                  {authMode === 'signin' ? 'Sign In' : 'Create Account'}
-                </button>
-              </form>
-
-              <div className="p-6 bg-stone-50 border border-stone-200 space-y-4">
-                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Test Credentials:</p>
-                <div className="space-y-2">
-                  <p className="text-[11px] text-stone-600 font-medium">
-                    <span className="font-black uppercase mr-2">Admin:</span> masashi@milz.tech / password123
-                  </p>
-                  <p className="text-[11px] text-stone-600 font-medium">
-                    <span className="font-black uppercase mr-2">User:</span> user@example.com / password123
-                  </p>
-                </div>
-                <p className="text-[9px] text-stone-400 leading-tight">
-                  ※SupabaseのAuthenticationでユーザーを作成する際、上記のパスワードを設定してください。
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-2 pt-2">
-                <button 
-                  onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')}
-                  className="text-xs font-bold text-stone-500 hover:text-stone-900 transition-colors"
-                >
-                  {authMode === 'signin' ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
-                </button>
-              </div>
-            </motion.div>
-          </AnimatePresence>
-
-          <div className="pt-4">
-            <p className="text-[10px] text-stone-300 font-bold">
-              Powered by milztech
-            </p>
-          </div>
-        </motion.div>
-      </div>
+      <MilzLanding
+        authOpen={landingAuthOpen}
+        setAuthOpen={setLandingAuthOpen}
+        authMode={authMode}
+        setAuthMode={setAuthMode}
+        selectedAuthRole={selectedAuthRole}
+        setSelectedAuthRole={setSelectedAuthRole}
+        email={email}
+        setEmail={setEmail}
+        password={password}
+        setPassword={setPassword}
+        showPassword={showPassword}
+        setShowPassword={setShowPassword}
+        authError={authError}
+        handleEmailAuth={handleEmailAuth}
+      />
     );
   }
 
@@ -2147,26 +1814,6 @@ export default function App() {
               >
                 <Loader2 className={cn("w-4 h-4 text-stone-400", isFetching && "animate-spin text-black")} />
               </button>
-              <div className="flex items-center rounded-full border border-stone-200 bg-stone-50 p-1 shadow-sm">
-                <button
-                  onClick={() => setLocale('jp')}
-                  className={cn(
-                    "px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                    locale === 'jp' ? "bg-black text-white" : "text-stone-400 hover:text-black"
-                  )}
-                >
-                  JP
-                </button>
-                <button
-                  onClick={() => setLocale('en')}
-                  className={cn(
-                    "px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                    locale === 'en' ? "bg-black text-white" : "text-stone-400 hover:text-black"
-                  )}
-                >
-                  EN
-                </button>
-              </div>
               <div className="h-4 w-px bg-stone-100" />
               <div className="relative">
                 <button 
@@ -2231,10 +1878,10 @@ export default function App() {
                     )}
                   >
                     {isFiltering 
-                      ? <X className="w-4 h-4" /> 
+                      ? <X className="w-5 h-5" /> 
                       : (
                         <div className="relative">
-                          <SlidersHorizontal className="w-4 h-4" />
+                          <SlidersHorizontal className="w-5 h-5" />
                           {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || selectedCategory !== 'all') && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-black rounded-full border-2 border-white" />
                           )}
@@ -2334,7 +1981,7 @@ export default function App() {
                           ))}
                         </select>
 
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-2 gap-4">
                           {/* State Select */}
                           <select
                             value={locationFilter.stateCode}
@@ -2689,10 +2336,10 @@ export default function App() {
                   <div className="relative z-10 space-y-4">
                     <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">MILZ AI DISCOVERY</p>
                     <h2 className="text-5xl font-black text-black leading-[1.1] tracking-tight max-w-2xl">
-                      {t('aiTitle')}
+                      Curated recommendations and real-time trends for your selected region.
                     </h2>
                     <p className="text-sm text-stone-400 font-medium max-w-xl">
-                      {t('aiSubtitle')}
+                      Keep discovery practical, premium, and easy to trust without decorative noise.
                     </p>
                   </div>
                   <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-stone-50/50 to-transparent pointer-events-none" />
@@ -2719,43 +2366,33 @@ export default function App() {
                           { name: 'New York', country: 'US', state: 'NY', city: 'New York' },
                           { name: 'Tokyo', country: 'JP', state: '13', city: 'Tokyo' },
                           { name: 'Kyoto', country: 'JP', state: '26', city: 'Kyoto' },
-                          { name: 'Seoul', country: 'KR', state: '11', city: 'Seoul' },
-                          { name: 'Hawaii', country: 'US', state: 'HI', city: 'Honolulu' },
-                        ].map((region) => {
-                          const isRegionActive =
-                            locationFilter.countryCode === region.country &&
-                            locationFilter.stateCode === region.state &&
-                            (locationFilter.cityName === region.city ||
-                              locationFilter.cityName === region.name ||
-                              locationFilter.stateName === region.name);
-
-                          return (
-                            <button
-                              key={region.name}
-                              onClick={() => {
-                                const c = Country.getCountryByCode(region.country);
-                                const s = State.getStateByCodeAndCountry(region.state, region.country);
-                                setLocationFilter({
-                                  countryCode: region.country,
-                                  countryName: c?.name || '',
-                                  stateCode: region.state,
-                                  stateName: s?.name || '',
-                                  cityCode: region.city,
-                                  cityName: region.city,
-                                });
-                              }}
-                              className={cn(
-                                "px-6 py-3 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border",
-                                isRegionActive
-                                  ? "bg-black text-white border-black shadow-lg"
-                                  : "bg-stone-50 text-stone-400 border-stone-100 hover:border-stone-300 hover:text-black"
-                              )}
-                            >
-                              <MapPin className="w-3 h-3" />
-                              {region.name}
-                            </button>
-                          );
-                        })}
+                          { name: 'Seoul', country: 'KR', state: '11', city: 'Seoul' }
+                        ].map((region) => (
+                          <button
+                            key={region.name}
+                            onClick={() => {
+                              const c = Country.getCountryByCode(region.country);
+                              const s = State.getStateByCodeAndCountry(region.state, region.country);
+                              setLocationFilter({
+                                countryCode: region.country,
+                                countryName: c?.name || '',
+                                stateCode: region.state,
+                                stateName: s?.name || '',
+                                cityCode: region.city,
+                                cityName: region.city,
+                              });
+                            }}
+                            className={cn(
+                              "px-6 py-3 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border",
+                              locationFilter.cityName === region.name
+                                ? "bg-black text-white border-black shadow-lg"
+                                : "bg-stone-50 text-stone-400 border-stone-100 hover:border-stone-300 hover:text-black"
+                            )}
+                          >
+                            <MapPin className="w-3 h-3" />
+                            {region.name}
+                          </button>
+                        ))}
                       </div>
 
                       {/* Manual Inputs Grid */}
@@ -2841,7 +2478,7 @@ export default function App() {
                         className="w-full p-10 bg-[#1A1A1A] text-white font-black rounded-[2.5rem] flex items-center justify-center gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50 tracking-[0.5em] text-xs hover:bg-black group"
                       >
                         {aiLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6 group-hover:scale-110 transition-transform" />}
-                        {t('getRecommendations')}
+                        おすすめを取得 (WORLDWIDE)
                       </button>
                     </div>
 
@@ -2851,8 +2488,8 @@ export default function App() {
                         {aiResults.recommendations && (
                           <section className="space-y-6">
                             <div className="flex items-center justify-between px-4">
-                              <h3 className="text-xs font-black text-stone-400 uppercase tracking-[0.4em]">{t('recommendedSpots')}</h3>
-                              <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{aiResults.recommendations.length} {t('itemsFound')}</span>
+                              <h3 className="text-xs font-black text-stone-400 uppercase tracking-[0.4em]">Recommended Spots</h3>
+                              <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{aiResults.recommendations.length} items found</span>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               {aiResults.recommendations.map((rec, i) => (
@@ -2877,19 +2514,14 @@ export default function App() {
                                       className="flex-1 py-4 bg-stone-50 hover:bg-black hover:text-white text-black rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all border border-stone-100"
                                     >
                                       <MapPin className="w-3 h-3" />
-                                      {t('viewOnMap')}
+                                      View on Map
                                     </button>
                                     <button
                                       onClick={() => handleSaveAiRecommendation(rec)}
-                                      className={cn(
-                                        "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
-                                        aiFavorites.some((item) => item.key === createAiFavoriteKey(rec))
-                                          ? "border-rose-200 bg-rose-50 text-rose-500"
-                                          : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
-                                      )}
-                                      title={t('saveAi')}
+                                      className="px-6 py-4 border border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400 rounded-2xl transition-all flex items-center justify-center"
+                                      title="Save to Favorites"
                                     >
-                                      <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey(rec)) && "fill-current")} />
+                                      <Heart className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </motion.div>
@@ -2906,7 +2538,7 @@ export default function App() {
                     <div className="bg-white p-10 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-10 sticky top-24">
                       <div className="space-y-1">
                         <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">REGION SUMMARY</p>
-                        <h3 className="text-xl font-black text-black tracking-tight">{t('currentScope')}</h3>
+                        <h3 className="text-xl font-black text-black tracking-tight">Current Scope</h3>
                       </div>
 
                       <div className="space-y-8">
@@ -2935,7 +2567,8 @@ export default function App() {
 
                       <div className="pt-6 border-t border-stone-50">
                         <p className="text-[9px] font-medium text-stone-300 leading-relaxed">
-                          {t('aiGeneratedNote')}
+                          AI recommendations are generated based on the selected scope. 
+                          Accuracy may vary by region.
                         </p>
                       </div>
                     </div>
@@ -2965,7 +2598,7 @@ export default function App() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-serif font-bold text-black tracking-tight">{profileDisplayName || user.email?.split('@')[0] || 'USER'}</h2>
+                  <h2 className="text-3xl font-serif font-bold text-black tracking-tight">{user.email?.split('@')[0]}</h2>
                   <p className="text-stone-400 font-medium tracking-widest text-xs uppercase">{user.email}</p>
                 </div>
                 <div className="flex items-center justify-center gap-2">
@@ -2975,28 +2608,6 @@ export default function App() {
                   )}>
                     {role === 'admin' ? 'ADMINISTRATOR' : 'MEMBER'}
                   </span>
-                </div>
-                <div className="max-w-md mx-auto w-full space-y-3 text-left">
-                  <div className="flex items-center gap-2 px-1">
-                    <Pencil className="w-4 h-4 text-stone-400" />
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Display Name</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      value={profileDisplayName}
-                      onChange={(e) => setProfileDisplayName(e.target.value)}
-                      placeholder="Enter your display name"
-                      className="flex-1 px-5 py-4 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all font-medium"
-                    />
-                    <button
-                      onClick={handleSaveProfileName}
-                      disabled={isSavingProfileName}
-                      className="px-6 py-4 rounded-2xl bg-black text-white text-[10px] font-black uppercase tracking-[0.28em] disabled:opacity-60 flex items-center justify-center gap-2 min-w-[128px]"
-                    >
-                      {isSavingProfileName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Save
-                    </button>
-                  </div>
                 </div>
                 <div className="text-[9px] font-mono text-stone-400 bg-stone-50 p-4 border border-stone-100 rounded-lg break-all">
                   UID: {user.id}<br/>
@@ -3237,10 +2848,6 @@ export default function App() {
                     <p className="text-2xl font-serif font-bold text-stone-900">{places.length}</p>
                     <p className="text-[10px] font-black text-stone-400 uppercase">Global Spots</p>
                   </div>
-                  <div className="bg-white p-6 border border-stone-100 shadow-sm rounded-2xl">
-                    <p className="text-2xl font-serif font-bold text-stone-900">{aiFavorites.length}</p>
-                    <p className="text-[10px] font-black text-stone-400 uppercase">AI Saves</p>
-                  </div>
                 </div>
               </div>
 
@@ -3265,68 +2872,68 @@ export default function App() {
       </main>
 
       {/* Navigation */}
-      <div className="fixed bottom-5 left-4 right-4 z-[1001] pointer-events-none">
-        <nav className="max-w-xl mx-auto bg-white/88 backdrop-blur-xl border border-stone-200/70 shadow-[0_20px_50px_rgba(0,0,0,0.08)] rounded-[1.8rem] pointer-events-auto overflow-hidden">
-          <div className="px-5 py-2.5 flex items-center justify-between gap-2">
+      <div className="fixed bottom-8 left-6 right-6 z-[1001] pointer-events-none">
+        <nav className="max-w-2xl mx-auto bg-white/90 backdrop-blur-xl border border-stone-100 shadow-2xl rounded-[2rem] pointer-events-auto overflow-hidden">
+          <div className="px-8 py-4 flex items-center justify-between">
             <button 
               onClick={() => setActiveTab('map')}
               className={cn(
-                "flex flex-col items-center gap-1 transition-all group flex-1",
+                "flex flex-col items-center gap-1.5 transition-all group",
                 activeTab === 'map' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-2 rounded-2xl transition-all",
                 activeTab === 'map' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <MapIcon className="w-4 h-4" />
+                <MapIcon className="w-5 h-5" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('map')}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider">Map</span>
             </button>
             <button 
               onClick={() => setActiveTab('list')}
               className={cn(
-                "flex flex-col items-center gap-1 transition-all group flex-1",
+                "flex flex-col items-center gap-1.5 transition-all group",
                 activeTab === 'list' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-2 rounded-2xl transition-all",
                 activeTab === 'list' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <ListIcon className="w-4 h-4" />
+                <ListIcon className="w-5 h-5" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('spots')}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider">List</span>
             </button>
             <button 
               onClick={() => setActiveTab('ai')}
               className={cn(
-                "flex flex-col items-center gap-1 transition-all group flex-1",
+                "flex flex-col items-center gap-1.5 transition-all group",
                 activeTab === 'ai' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-2 rounded-2xl transition-all",
                 activeTab === 'ai' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <Sparkles className="w-4 h-4" />
+                <Sparkles className="w-5 h-5" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('ai')}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider">AI</span>
             </button>
             <button 
               onClick={() => setActiveTab('profile')}
               className={cn(
-                "flex flex-col items-center gap-1 transition-all group flex-1",
+                "flex flex-col items-center gap-1.5 transition-all group",
                 activeTab === 'profile' ? "text-black" : "text-stone-300 hover:text-stone-500"
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-2 rounded-2xl transition-all",
                 activeTab === 'profile' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
-                <UserIcon className="w-4 h-4" />
+                <UserIcon className="w-5 h-5" />
               </div>
-              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('profile')}</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider">Me</span>
             </button>
           </div>
         </nav>
@@ -3440,7 +3047,7 @@ export default function App() {
 
                     <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category / Marker</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category</label>
                         <select 
                           name="category"
                           defaultValue={editingPlace?.category || 'その他'}
@@ -3450,7 +3057,6 @@ export default function App() {
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
                         </select>
-                        <p className="text-[10px] text-stone-400 leading-relaxed px-1">地図上のアイコンは、このカテゴリ設定にあわせて自動で切り替わります。</p>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Website</label>
@@ -3511,15 +3117,14 @@ export default function App() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Short Videos (Comma separated URLs)</label>
                         <textarea 
                           name="videos"
-                          rows={3}
-                          defaultValue={editingPlace?.videos?.join('\n') || ''}
-                          placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
+                          rows={2}
+                          defaultValue={editingPlace?.videos?.join(', ') || ''}
+                          placeholder="https://video1.mp4, https://video2.mp4..."
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                         />
-                        <p className="px-1 text-[11px] leading-relaxed text-stone-500">For now, MILZ stores YouTube links here. One URL per line is easiest. The same Supabase <code className="font-mono text-[10px]">videos</code> column is used, so no DB migration is needed.</p>
                       </div>
 
                       <div className="space-y-2">
@@ -3831,7 +3436,7 @@ export default function App() {
                                 }}
                                 className="absolute top-4 right-4 w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all opacity-0 group-hover:opacity-100"
                               >
-                                <X className="w-4 h-4" />
+                                <X className="w-5 h-5" />
                               </button>
                             )}
                           </div>
@@ -3840,7 +3445,7 @@ export default function App() {
                     </section>
 
                     {/* Short Videos Section */}
-                    {(isEditingDetail || (selectedPlaceForDetail.videos && selectedPlaceForDetail.videos.length > 0)) && (
+                    {selectedPlaceForDetail.videos && selectedPlaceForDetail.videos.length > 0 && (
                       <section className="space-y-12">
                         <div className="flex items-center gap-4">
                           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-400">03</span>
@@ -3857,54 +3462,41 @@ export default function App() {
                             </h2>
                           )}
                         </div>
-                        <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                           {isEditingDetail && (
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs</label>
-                              <textarea
-                                value={(editDetailForm.videos || []).join('\n')}
-                                onChange={(e) => setEditDetailForm({ ...editDetailForm, videos: parseUrlList(e.target.value) })}
-                                rows={4}
-                                placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
-                                className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
+                            <div className="col-span-1">
+                              <DropZone 
+                                label="Add Short Videos" 
+                                onFilesDrop={(files) => handleFilesDrop(files, 'videos')}
+                                isLoading={uploading}
+                                className="h-full min-h-[300px]"
+                                accept="video/*"
                               />
-                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">Paste YouTube Shorts or normal YouTube video URLs. They are stored in Supabase using the existing <code className="font-mono text-[10px]">videos</code> text array.</p>
                             </div>
                           )}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {(isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos)?.map((video, i) => {
-                              const youtubeEmbedUrl = getYouTubeEmbedUrl(video);
-                              return (
-                                <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden rounded-[28px]">
-                                  <VideoEmbed url={video} title={`${selectedPlaceForDetail.name} video ${i + 1}`} />
-                                  {!youtubeEmbedUrl && (
-                                    <div className="absolute inset-0 pointer-events-none border-[20px] border-white/10 group-hover:border-white/0 transition-all duration-500" />
-                                  )}
-                                  {isEditingDetail && (
-                                    <button 
-                                      onClick={() => {
-                                        const newVideos = (editDetailForm.videos || []).filter((_, idx) => idx !== i);
-                                        setEditDetailForm({ ...editDetailForm, videos: newVideos });
-                                      }}
-                                      className="absolute top-4 right-4 w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                  {youtubeEmbedUrl && (
-                                    <a
-                                      href={video}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="absolute bottom-4 right-4 px-3 py-1.5 rounded-full bg-black/70 text-white text-[10px] font-bold uppercase tracking-[0.2em] backdrop-blur-sm z-10"
-                                    >
-                                      Open YouTube
-                                    </a>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
+                          {(isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos)?.map((video, i) => (
+                            <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden">
+                              <video 
+                                src={video} 
+                                className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                                controls
+                                muted
+                                loop
+                              />
+                              <div className="absolute inset-0 pointer-events-none border-[20px] border-white/10 group-hover:border-white/0 transition-all duration-500" />
+                              {isEditingDetail && (
+                                <button 
+                                  onClick={() => {
+                                    const newVideos = (editDetailForm.videos || []).filter((_, idx) => idx !== i);
+                                    setEditDetailForm({ ...editDetailForm, videos: newVideos });
+                                  }}
+                                  className="absolute top-8 right-8 w-12 h-12 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"
+                                >
+                                  <X className="w-6 h-6" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </section>
                     )}

@@ -25,7 +25,7 @@ export interface MapNavigator {
 interface PlaceLike {
   id: string;
   name: string;
-  category: string;
+  category: 'restaurant' | 'shop' | 'other';
   lat: number;
   lng: number;
 }
@@ -59,28 +59,12 @@ declare global {
   }
 }
 
-const TOKYO_CENTER: [number, number] = [35.6812, 139.7671];
+const TOKYO_CENTER: [number, number] = [139.7671, 35.6812];
 const MAPTILER_JS = 'https://cdn.maptiler.com/maptiler-sdk-js/v3.10.2/maptiler-sdk.umd.min.js';
 const MAPTILER_CSS = 'https://cdn.maptiler.com/maptiler-sdk-js/v3.10.2/maptiler-sdk.css';
 const TERRAIN_SOURCE_URL = 'https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json';
 
 let sdkLoader: Promise<any> | null = null;
-
-const CATEGORY_MARKER_STYLES: Record<string, { bg: string; fg: string; svg: string }> = {
-  'レストラン': { bg: '#111111', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>' },
-  'カフェ': { bg: '#4f3422', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>' },
-  '駅・交通': { bg: '#1d4ed8', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="12" rx="2"></rect><path d="M8 11h8"></path><path d="M12 15v4"></path><path d="M8 19l-2 2"></path><path d="M16 19l2 2"></path></svg>' },
-  '駐車場': { bg: '#0f766e', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h-3v16"></path><path d="M10 4h5a4 4 0 0 1 0 8h-5"></path></svg>' },
-  '公園・自然': { bg: '#166534', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M18 12v.2A3 3 0 0 1 16.9 18H13a3 3 0 0 1-1-5.8V12a3 3 0 0 1 6 0Z"></path><path d="M12 22v-3"></path><path d="M8 22v-2"></path><path d="M16 22v-2"></path></svg>' },
-  'ショッピング': { bg: '#7c3aed', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>' },
-  '学校': { bg: '#7c2d12', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 8-4 8 4"></path><path d="m18 10 2 1v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8l2-1"></path><path d="M14 22v-4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v4"></path></svg>' },
-  'コンビニ': { bg: '#be123c', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"></path><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"></path><path d="M2 7h20"></path></svg>' },
-  'その他': { bg: '#374151', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>' },
-  'restaurant': { bg: '#111111', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>' },
-  'cafe': { bg: '#4f3422', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>' },
-  'shop': { bg: '#7c3aed', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>' },
-  'other': { bg: '#374151', fg: '#ffffff', svg: '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>' },
-};
 
 function ensureMapTilerAssets() {
   if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'));
@@ -115,23 +99,14 @@ function ensureMapTilerAssets() {
   return sdkLoader;
 }
 
-function createMarkerNode(kind: 'place' | 'ai' | 'new', label?: string, category?: string) {
+function createMarkerNode(kind: 'place' | 'ai' | 'new', label?: string) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'milz-maptiler-marker';
 
   const inner = document.createElement('span');
   inner.className = `milz-maptiler-marker__inner milz-maptiler-marker__inner--${kind}`;
-
-  if (kind === 'place') {
-    const markerStyle = CATEGORY_MARKER_STYLES[category || ''] || CATEGORY_MARKER_STYLES['その他'];
-    inner.style.background = markerStyle.bg;
-    inner.style.color = markerStyle.fg;
-    inner.innerHTML = markerStyle.svg;
-  } else {
-    inner.textContent = kind === 'ai' ? 'AI' : kind === 'new' ? '+' : '';
-  }
-
+  inner.textContent = kind === 'ai' ? 'AI' : kind === 'new' ? '+' : '';
   el.appendChild(inner);
 
   if (label && kind === 'place') {
@@ -291,31 +266,17 @@ function add3dBuildings(map: any, preset: TokyoAnglePreset) {
   }
 }
 
-function applyMiniaturePresentation(
-  map: any,
-  apiKey: string,
-  presetKey: TokyoAnglePreset,
-  options: { instant?: boolean; preserveCenter?: boolean } = {},
-) {
+function applyMiniaturePresentation(map: any, apiKey: string, presetKey: TokyoAnglePreset, instant = false) {
   const preset = TOKYO_ANGLE_PRESETS[presetKey];
-  const duration = options.instant ? 0 : 1100;
+  const duration = instant ? 0 : 1100;
 
   addAtmosphere(map, presetKey);
   addTerrain(map, apiKey, presetKey);
   add3dBuildings(map, presetKey);
 
   try {
-    const currentCenter = map.getCenter?.();
-    const hasMeaningfulCurrentCenter =
-      currentCenter &&
-      (Math.abs(currentCenter.lat - TOKYO_CENTER[0]) > 0.0001 || Math.abs(currentCenter.lng - TOKYO_CENTER[1]) > 0.0001);
-
-    const targetCenter = options.preserveCenter || hasMeaningfulCurrentCenter
-      ? [currentCenter.lng, currentCenter.lat]
-      : [TOKYO_CENTER[1], TOKYO_CENTER[0]];
-
     map.easeTo({
-      center: targetCenter,
+      center: TOKYO_CENTER,
       zoom: preset.zoom,
       pitch: preset.pitch,
       bearing: preset.bearing,
@@ -352,30 +313,6 @@ export default function TokyoMiniatureMap({
   const hasKey = Boolean(apiKey && apiKey.trim());
   const preset = TOKYO_ANGLE_PRESETS[anglePreset];
   const styleTarget = useMemo(() => ({ anglePreset }), [anglePreset]);
-  const latestRoleRef = useRef(role);
-  const latestTabRef = useRef(activeTab);
-  const latestAddingRef = useRef(isAdding);
-
-  useEffect(() => {
-    latestRoleRef.current = role;
-    latestTabRef.current = activeTab;
-    latestAddingRef.current = isAdding;
-  }, [role, activeTab, isAdding]);
-  const roleRef = useRef(role);
-  const activeTabRef = useRef(activeTab);
-  const isAddingRef = useRef(isAdding);
-
-  useEffect(() => {
-    roleRef.current = role;
-  }, [role]);
-
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
-
-  useEffect(() => {
-    isAddingRef.current = isAdding;
-  }, [isAdding]);
 
   useEffect(() => {
     if (!hasKey || !containerRef.current) return;
@@ -389,7 +326,7 @@ export default function TokyoMiniatureMap({
         const map = new sdk.Map({
           container: containerRef.current,
           style: resolveStyle(sdk, anglePreset),
-          center: [TOKYO_CENTER[1], TOKYO_CENTER[0]],
+          center: TOKYO_CENTER,
           zoom: preset.zoom,
           bearing: preset.bearing,
           pitch: preset.pitch,
@@ -414,12 +351,12 @@ export default function TokyoMiniatureMap({
         };
 
         map.on('load', () => {
-          applyMiniaturePresentation(map, apiKey!, anglePreset, { instant: true, preserveCenter: false });
+          applyMiniaturePresentation(map, apiKey!, anglePreset, true);
           syncBounds();
         });
 
         map.on('style.load', () => {
-          applyMiniaturePresentation(map, apiKey!, anglePreset, { instant: true, preserveCenter: true });
+          applyMiniaturePresentation(map, apiKey!, anglePreset, true);
         });
 
         map.on('idle', () => {
@@ -429,7 +366,7 @@ export default function TokyoMiniatureMap({
         map.on('moveend', syncBounds);
 
         map.on('click', (event: any) => {
-          if (roleRef.current === 'admin' && activeTabRef.current === 'map' && isAddingRef.current) {
+          if (role === 'admin' && activeTab === 'map' && isAdding) {
             setNewPlacePos({ lat: event.lngLat.lat, lng: event.lngLat.lng });
           }
         });
@@ -459,7 +396,7 @@ export default function TokyoMiniatureMap({
 
     map.setStyle(resolveStyle(sdk, styleTarget.anglePreset));
     map.once('style.load', () => {
-      applyMiniaturePresentation(map, apiKey!, styleTarget.anglePreset, { preserveCenter: true });
+      applyMiniaturePresentation(map, apiKey!, styleTarget.anglePreset, false);
     });
   }, [apiKey, hasKey, styleTarget]);
 
@@ -468,7 +405,7 @@ export default function TokyoMiniatureMap({
     if (!map || !hasKey) return;
     map.setMinZoom?.(preset.minZoom);
     map.setMaxZoom?.(preset.maxZoom);
-    applyMiniaturePresentation(map, apiKey!, anglePreset, { preserveCenter: true });
+    applyMiniaturePresentation(map, apiKey!, anglePreset, false);
   }, [anglePreset, apiKey, hasKey, preset]);
 
   useEffect(() => {
@@ -480,7 +417,7 @@ export default function TokyoMiniatureMap({
     markerRefs.current = [];
 
     places.forEach((place) => {
-      const el = createMarkerNode('place', place.name, place.category);
+      const el = createMarkerNode('place');
       el.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
