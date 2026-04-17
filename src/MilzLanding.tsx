@@ -127,11 +127,6 @@ export default function MilzLanding({
             </div>
             <div className="col-span-12 md:col-span-3 flex md:justify-end items-end">
               <div className="flex flex-col gap-3 w-full md:w-auto">
-                <div className="text-[13px] leading-[1.8] text-[var(--gray-700)] border border-black px-4 py-3">
-                  <div>Curating the Unknown.</div>
-                  <div>AI covers the mainstream.</div>
-                  <div>Details that let you feel the atmosphere.</div>
-                </div>
                 <button className="btn justify-center" onClick={() => setAuthOpen(true)}>
                   {isJP ? 'MILZを開く' : 'Open MILZ'} <ArrowUpRight size={14} />
                 </button>
