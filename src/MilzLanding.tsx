@@ -58,12 +58,12 @@ export default function MilzLanding({
           {Array.from({ length: 3 }).map((_, k) => (
             <div key={k} className="flex gap-10 pr-10 whitespace-nowrap">
               {[
-                'CURATING THE UNKNOWN',
-                'AI COVERS THE MAINSTREAM',
-                'DETAILS THAT LET YOU FEEL THE ATMOSPHERE',
-                'ONLY TRUSTED SPOTS',
+                'ISSUE N°001',
+                'FINDING THE UNKNOWN',
                 'NEW YORK / TOKYO / KYOTO / SEOUL / HAWAII',
-                'ONE STANDARD',
+                'A CURATED SELECTION',
+                '知られていないものを、編む',
+                'MILZ SELECTS',
               ].map((txt, i) => (
                 <span key={i}>★ {txt}</span>
               ))}
@@ -76,7 +76,7 @@ export default function MilzLanding({
         <div className="max-w-[1500px] mx-auto px-5 md:px-8 h-[72px] flex items-center justify-between">
           <div className="flex items-center gap-6">
             <div className="font-display text-[44px] leading-none">MILZ</div>
-            <span className="label hidden md:inline">CURATED · MMXXV</span>
+            <span className="label hidden md:inline">CURATED · 2025</span>
           </div>
           <nav className="hidden md:flex items-center gap-8 font-cond uppercase text-[14px] tracking-[0.04em]">
             <span className="cursor-default">Index</span>
@@ -115,14 +115,14 @@ export default function MilzLanding({
             <div className="col-span-12 md:col-span-5">
               <div className="label mb-3">§ COVER STORY</div>
               <div className="font-cond uppercase text-[32px] md:text-[42px] leading-[1.02] font-black">
-                {isJP ? '知られていない価値を、選ぶ。' : 'Curating the Unknown.'}
+                {isJP ? '知られていないものを、編む。' : 'Curating the Unknown.'}
               </div>
             </div>
             <div className="col-span-12 md:col-span-4">
               <p className="text-[14px] md:text-[15px] leading-[1.9] text-[var(--gray-700)]">
                 {isJP
-                  ? 'MILZは、場所、サービス、人の中から、尖っていて紹介する意味があるものだけを選ぶためのガイドです。王道や定番はAIが補い、MILZはアンダーグラウンドで、まだ広く知られていない価値に光を当てます。'
-                  : 'MILZ is a curated guide to places, services, and people worth discovering. The mainstream is easy to find. AI can help there. MILZ focuses on what feels sharper, rarer, and more worth passing on.'}
+                  ? 'メジャーな情報はAIが答えてくれる時代。MILZ が拾うのは、その先にある、まだ名前の知られていない場所、サービス、そして人。空気まで感じとれるディテールだけを、静かに編集します。'
+                  : 'AI already covers the mainstream. MILZ looks further — toward the distinctive, the underground, the still-unnamed places, services, and people. Only the details that let you feel the atmosphere. Quietly edited.'}
               </p>
             </div>
             <div className="col-span-12 md:col-span-3 flex md:justify-end items-end">
@@ -173,26 +173,21 @@ export default function MilzLanding({
           <div className="font-display text-[13vw] md:text-[9vw] leading-[0.92] tracking-[-0.01em]">
             {isJP ? (
               <>
-                その場所は、<br />
-                いつも有名とは限らない。<br />
-                MILZ は<span className="italic">未知の価値を</span>選ぶ。
+                AIが答えるのは、<br />
+                メジャーだけ。<br />
+                MILZ は<span className="italic">その先を</span>編む。
               </>
             ) : (
               <>
-                THE BEST<br />
-                PLACES AREN'T<br />
-                ON <span className="italic">EVERY</span> LIST.
+                AI COVERS<br />
+                THE MAINSTREAM.<br />
+                MILZ <span className="italic">GOES</span> FURTHER.
               </>
             )}
           </div>
-          <div className="mt-10 max-w-2xl text-[14px] md:text-[15px] leading-[1.9] text-white/75">
-            {isJP
-              ? 'わかりやすい定番や、すでに人気のある場所はAIでも見つけられます。MILZが見たいのは、その先にあるもの。アンダーグラウンドで、まだ広く知られていないのに、確かな価値があるものです。'
-              : 'Some places are obvious. Some are simply popular. MILZ looks beyond that. It focuses on the underground, the unknown, and the places that leave a lasting impression.'}
-          </div>
           <div className="mt-16 flex justify-between items-center border-t border-white/30 pt-6">
             <div className="label" style={{ color: 'var(--gray-500)' }}>— MILZ MMXXV</div>
-            <div className="font-cond uppercase text-[14px] tracking-wider">AI COVERS THE MAINSTREAM</div>
+            <div className="font-cond uppercase text-[14px] tracking-wider">A SMALL CURATION</div>
           </div>
         </div>
       </section>
@@ -203,13 +198,13 @@ export default function MilzLanding({
             <div>
               <div className="label mb-4">§ 02 — PRINCIPLES</div>
               <h2 className="font-display text-[16vw] md:text-[10vw] leading-[0.85]">
-                {isJP ? '3つの、基準。' : 'THREE RULES.'}
+                {isJP ? '3つの、やくそく。' : 'THREE RULES.'}
               </h2>
             </div>
             <div className="max-w-sm text-[14px] leading-[1.9] text-[var(--gray-700)]">
               {isJP
-                ? 'MILZは網羅しません。何を載せるかだけでなく、何を載せないかも含めて編集です。'
-                : 'MILZ is not built to cover everything. Exclusion is part of the editing.'}
+                ? 'AIが語れる「正解」ではなく、まだ知られていないものを編む。MILZ は、量ではなく基準で答えます。'
+                : 'Not the answers AI already gives. MILZ edits toward what is still unknown — replying with a standard, not a list.'}
             </div>
           </div>
 
@@ -217,27 +212,27 @@ export default function MilzLanding({
             {[
               {
                 n: '01',
-                t: isJP ? '未知を' : 'CURATING',
-                s: isJP ? '選ぶ。' : 'THE UNKNOWN.',
+                t: isJP ? '未知' : 'UNKNOWN',
+                s: isJP ? 'を、編む。' : 'FIRST.',
                 d: isJP
-                  ? 'MILZは、いつものリストに載るものより、まだ知られていない価値を選びます。尖っていて、紹介する意味があるか。それが基準です。'
-                  : 'MILZ is built for distinctive places, services, and people that do not belong to the usual lists.',
+                  ? 'メジャーはAIに任せる。MILZ が追うのは、まだ名前の知られていない場所、人、サービス。そこにしか残らない空気を、編集で残す。'
+                  : 'AI already covers the mainstream. MILZ follows what is still unnamed — the places, people, and services that only quiet editing can surface.',
               },
               {
                 n: '02',
-                t: isJP ? '王道は' : 'AI COVERS',
-                s: isJP ? 'AIが補う。' : 'THE MAINSTREAM.',
+                t: isJP ? '空気' : 'ATMOSPHERE',
+                s: isJP ? 'の、細部。' : 'IN DETAIL.',
                 d: isJP
-                  ? '定番のレストランや、広く知られたおすすめはAIでも見つけられます。MILZは、その先にある価値を扱います。'
-                  : 'Well-known restaurants, standard recommendations, and obvious options can be found with AI. MILZ exists for what comes after that.',
+                  ? '評点ではなく、ディテール。光、音、間、距離感。訪れる前から空気を感じられる情報だけを、ひとつずつ手渡しで。'
+                  : 'Not ratings. Details. Light, sound, pace, distance. Only the notes that let you feel the atmosphere before you arrive — handed over one by one.',
               },
               {
                 n: '03',
-                t: isJP ? '空気感まで' : 'FEEL THE',
-                s: isJP ? '伝える。' : 'ATMOSPHERE.',
+                t: isJP ? '基準' : 'ONE',
+                s: isJP ? 'は、ひとつ。' : 'STANDARD.',
                 d: isJP
-                  ? '各Spotには高品質な写真や動画を含む詳細ページがあり、行く前からその場所の温度や雰囲気が伝わるようにしています。'
-                  : 'Each spot includes its own detail page with strong visuals, video, and concise notes so the mood is clear before you arrive.',
+                  ? 'ジャンルは関係ない。食、コーヒー、宿、工芸、眺め、人。分野ではなく、ひとつの線引きだけで答える。'
+                  : 'Category is irrelevant. Food, coffee, stays, craft, views, people. One line is drawn — and every answer comes from it.',
               },
             ].map((p, i) => (
               <div
@@ -269,8 +264,8 @@ export default function MilzLanding({
               <div className="mt-10 border-t-2 border-black pt-6 max-w-lg">
                 <p className="text-[15px] leading-[1.9] text-[var(--gray-700)]">
                   {isJP
-                    ? 'マップとガイド、その中間にあるアプリ。広く並べるためではなく、信頼できる選択肢と、その場所の空気感を残すために作られています。'
-                    : 'Part guide, part map, part curated index. Built not for noise, but for trust, selection, and atmosphere.'}
+                    ? 'マップと編集のあいだにある、静かなガイド。AIが答える表通りではなく、その奥にある未知を、空気ごと編む。'
+                    : 'A quiet guide between a map and a magazine. Not the main street AI already answers — the unknown behind it, edited with its atmosphere intact.'}
                 </p>
                 <div className="mt-8">
                   <button className="btn" onClick={() => setAuthOpen(true)}>
@@ -281,14 +276,14 @@ export default function MilzLanding({
 
               <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-0 border-t-2 border-black">
                 {[
-                  { k: '05 CITIES', v: '' },
-                  { k: 'Unique Categories', v: '' },
-                  { k: 'JP / EN', v: '' },
-                  { k: 'ONE STANDARD', v: '' },
+                  { k: 'CITIES', v: '05' },
+                  { k: 'CATEGORIES', v: 'UNIQUE' },
+                  { k: 'LANGUAGE', v: 'JP/EN' },
+                  { k: 'STANDARD', v: 'ONE' },
                 ].map((s, i) => (
                   <div key={s.k} className={`py-5 px-4 ${i !== 0 ? 'md:border-l border-black' : ''} ${i > 0 && i % 2 === 1 ? 'border-l border-black md:border-l' : ''}`}>
-                    <div className="label mb-2">MILZ</div>
-                    <div className="font-display text-[32px] md:text-[38px] leading-[1.05]">{s.k}</div>
+                    <div className="label mb-2">{s.k}</div>
+                    <div className="font-display text-[40px] md:text-[46px] leading-none">{s.v}</div>
                   </div>
                 ))}
               </div>
@@ -379,7 +374,7 @@ export default function MilzLanding({
           <div className="grid md:grid-cols-4 gap-10">
             <div className="md:col-span-2">
               <div className="font-display text-[64px] leading-none">MILZ</div>
-              <div className="label mt-4" style={{ color: 'var(--gray-500)' }}>CURATING THE UNKNOWN · MMXXV</div>
+              <div className="label mt-4" style={{ color: 'var(--gray-500)' }}>A CURATED GUIDE · MMXXV</div>
             </div>
             <div>
               <div className="label mb-4" style={{ color: 'var(--gray-500)' }}>CITIES</div>
@@ -394,16 +389,16 @@ export default function MilzLanding({
             <div>
               <div className="label mb-4" style={{ color: 'var(--gray-500)' }}>GUIDE</div>
               <div className="font-cond uppercase text-[16px] leading-[2]">
-                <div>Curated Spots</div>
-                <div>Map</div>
-                <div>AI / Mainstream</div>
+                <div>Selection</div>
+                <div>Unknown</div>
+                <div>Atmosphere</div>
                 <div>JP / EN</div>
               </div>
             </div>
           </div>
           <div className="mt-14 pt-6 border-t border-white/20 flex justify-between items-center flex-wrap gap-3">
             <div className="label" style={{ color: 'var(--gray-500)' }}>© MMXXV MILZ</div>
-            <div className="label" style={{ color: 'var(--gray-500)' }}>— DETAILS THAT LET YOU FEEL THE ATMOSPHERE</div>
+            <div className="label" style={{ color: 'var(--gray-500)' }}>— FINDING THE UNKNOWN</div>
           </div>
         </div>
       </footer>
