@@ -192,7 +192,7 @@ export default function MilzLanding({
           </div>
           <div className="mt-16 flex justify-between items-center border-t border-white/30 pt-6">
             <div className="label" style={{ color: 'var(--gray-500)' }}>— MILZ MMXXV</div>
-            <div className="font-cond uppercase text-[14px] tracking-wider">CURATED BEYOND THE MAINSTREAM</div>
+            <div className="font-cond uppercase text-[14px] tracking-wider">AI COVERS THE MAINSTREAM</div>
           </div>
         </div>
       </section>
@@ -403,7 +403,7 @@ export default function MilzLanding({
           </div>
           <div className="mt-14 pt-6 border-t border-white/20 flex justify-between items-center flex-wrap gap-3">
             <div className="label" style={{ color: 'var(--gray-500)' }}>© MMXXV MILZ</div>
-            <div className="label" style={{ color: 'var(--gray-500)' }}>— CURATING THE UNKNOWN</div>
+            <div className="label" style={{ color: 'var(--gray-500)' }}>— DETAILS THAT LET YOU FEEL THE ATMOSPHERE</div>
           </div>
         </div>
       </footer>
