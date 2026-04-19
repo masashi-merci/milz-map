@@ -34,6 +34,17 @@ interface TempAiPinLike {
   lat: number;
   lng: number;
   name: string;
+  category?: string;
+  reason?: string;
+}
+
+interface SavedAiPinLike {
+  key: string;
+  lat: number;
+  lng: number;
+  name: string;
+  category?: string;
+  reason?: string;
 }
 
 interface TokyoMiniatureMapProps {
@@ -41,6 +52,7 @@ interface TokyoMiniatureMapProps {
   anglePreset: TokyoAnglePreset;
   places: PlaceLike[];
   tempAiPin: TempAiPinLike | null;
+  savedAiPins: SavedAiPinLike[];
   newPlacePos: { lat: number; lng: number } | null;
   role: 'admin' | 'user' | null;
   activeTab: 'map' | 'list' | 'shorts' | 'ai' | 'profile';
@@ -117,7 +129,7 @@ function ensureMapTilerAssets() {
   return sdkLoader;
 }
 
-function createMarkerNode(kind: 'place' | 'ai' | 'new', label?: string, category?: string) {
+function createMarkerNode(kind: 'place' | 'ai' | 'ai_saved' | 'new', label?: string, category?: string) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'milz-maptiler-marker';
@@ -130,13 +142,20 @@ function createMarkerNode(kind: 'place' | 'ai' | 'new', label?: string, category
     inner.style.background = markerStyle.bg;
     inner.style.color = markerStyle.fg;
     inner.innerHTML = markerStyle.svg;
+  } else if (kind === 'ai_saved') {
+    inner.style.background = '#111111';
+    inner.style.color = '#ffffff';
+    inner.textContent = '★';
   } else {
+    inner.style.background = kind === 'new' ? '#16a34a' : '#ffffff';
+    inner.style.color = kind === 'new' ? '#ffffff' : '#111111';
+    inner.style.border = kind === 'ai' ? '3px solid #111111' : '3px solid #ffffff';
     inner.textContent = kind === 'ai' ? 'AI' : kind === 'new' ? '+' : '';
   }
 
   el.appendChild(inner);
 
-  if (label && kind === 'place') {
+  if (label && (kind === 'place' || kind === 'ai_saved')) {
     const tag = document.createElement('span');
     tag.className = 'milz-maptiler-marker__label';
     tag.textContent = label;
@@ -334,6 +353,7 @@ export default function TokyoMiniatureMap({
   anglePreset,
   places,
   tempAiPin,
+  savedAiPins,
   newPlacePos,
   role,
   activeTab,
@@ -350,6 +370,7 @@ export default function TokyoMiniatureMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRefs = useRef<any[]>([]);
+  const savedAiMarkerRefs = useRef<any[]>([]);
   const tempMarkerRef = useRef<any | null>(null);
   const addMarkerRef = useRef<any | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -448,6 +469,8 @@ export default function TokyoMiniatureMap({
       cancelled = true;
       markerRefs.current.forEach((marker) => marker.remove?.());
       markerRefs.current = [];
+      savedAiMarkerRefs.current.forEach((marker) => marker.remove?.());
+      savedAiMarkerRefs.current = [];
       tempMarkerRef.current?.remove?.();
       addMarkerRef.current?.remove?.();
       mapInstanceRef.current?.remove?.();
@@ -498,6 +521,24 @@ export default function TokyoMiniatureMap({
       markerRefs.current.push(marker);
     });
   }, [places, onSelectPlace]);
+
+  useEffect(() => {
+    const sdk = window.maptilersdk;
+    const map = mapInstanceRef.current;
+    if (!sdk || !map) return;
+
+    savedAiMarkerRefs.current.forEach((marker) => marker.remove?.());
+    savedAiMarkerRefs.current = [];
+
+    savedAiPins.forEach((pin) => {
+      const el = createMarkerNode('ai_saved');
+      el.setAttribute('title', pin.name);
+      const marker = new sdk.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([pin.lng, pin.lat])
+        .addTo(map);
+      savedAiMarkerRefs.current.push(marker);
+    });
+  }, [savedAiPins]);
 
   useEffect(() => {
     const sdk = window.maptilersdk;

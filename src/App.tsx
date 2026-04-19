@@ -309,6 +309,8 @@ interface TempAiPin {
   lat: number;
   lng: number;
   name: string;
+  category?: string;
+  reason?: string;
 }
 interface AiFavoriteItem {
   key: string;
@@ -557,6 +559,27 @@ const getCustomIcon = (category: string, mapStyle: string) => {
   return icon;
 };
 
+const getAiLeafletIcon = (kind: 'temporary' | 'saved') => {
+  const cacheKey = `ai-${kind}`;
+  if (iconCache[cacheKey]) return iconCache[cacheKey];
+
+  const isTemporary = kind === 'temporary';
+  const html = isTemporary
+    ? `<div style="position:relative; width:44px; height:44px; display:flex; align-items:center; justify-content:center;"><div style="position:absolute; inset:4px; border-radius:14px; background:rgba(0,0,0,0.08); border:1px dashed rgba(0,0,0,0.18);"></div><div style="position:relative; width:36px; height:36px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:#ffffff; border:3px solid #111111; box-shadow:0 10px 22px rgba(0,0,0,0.18); color:#111111; font-weight:900; font-size:11px; letter-spacing:0.08em;">AI</div></div>`
+    : `<div style="position:relative; width:40px; height:40px; display:flex; align-items:center; justify-content:center;"><div style="position:relative; width:34px; height:34px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:#111111; border:3px solid #ffffff; box-shadow:0 10px 22px rgba(0,0,0,0.24); color:#ffffff; font-weight:900; font-size:12px;">★</div></div>`;
+
+  const icon = L.divIcon({
+    html,
+    className: 'custom-div-icon',
+    iconSize: isTemporary ? [44, 44] : [40, 40],
+    iconAnchor: isTemporary ? [22, 38] : [20, 34],
+    popupAnchor: [0, -20],
+  });
+
+  iconCache[cacheKey] = icon;
+  return icon;
+};
+
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<UserRole | null>(null);
@@ -713,6 +736,7 @@ export default function App() {
   }, [addLog]);
   const [tempAiPin, setTempAiPin] = useState<TempAiPin | null>(null);
   const [pendingMapFocus, setPendingMapFocus] = useState<{ lat: number; lng: number } | null>(null);
+  const [activeShortId, setActiveShortId] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'signin'>('signin');
   const [selectedAuthRole, setSelectedAuthRole] = useState<UserRole>('admin');
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -728,6 +752,8 @@ export default function App() {
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<MapNavigator | null>(null);
+  const shortsViewportRef = useRef<HTMLDivElement | null>(null);
+  const shortsItemRefs = useRef<Record<string, HTMLElement | null>>({});
   const t = (key: string) => uiCopy[locale][key] ?? key;
 
   const isPlaceholder = (val: string) => {
@@ -1819,6 +1845,16 @@ export default function App() {
 
     setAiFavorites(next);
 
+    if (!exists) {
+      setTempAiPin((current) => {
+        const isSamePin = current
+          && current.name === normalizedRec.name
+          && Math.abs(current.lat - normalizedRec.lat) < 0.00001
+          && Math.abs(current.lng - normalizedRec.lng) < 0.00001;
+        return isSamePin ? null : current;
+      });
+    }
+
     if (typeof window !== 'undefined' && user?.id) {
       window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
     }
@@ -1831,15 +1867,32 @@ export default function App() {
     );
   };
 
-  const handleViewOnMap = (rec: { name: string; lat: number; lng: number }) => {
+  const handleViewOnMap = (rec: { name: string; lat: number; lng: number; category?: string; reason?: string }) => {
     const normalized = normalizeMapCoords(rec.lat, rec.lng);
     if (!normalized) {
       showToast(locale === 'jp' ? '地図へ移動できる座標が見つかりませんでした。' : 'No valid coordinates were found for this recommendation.', 'error');
       return;
     }
 
+    const normalizedRec = {
+      ...rec,
+      lat: normalized.lat,
+      lng: normalized.lng,
+    };
+    const key = createAiFavoriteKey(normalizedRec as { name: string; lat: number; lng: number });
+    const isSavedAi = aiFavorites.some((item) => item.key === key);
     const target = { lat: normalized.lat, lng: normalized.lng };
-    setTempAiPin({ ...target, name: rec.name });
+
+    setTempAiPin(
+      isSavedAi
+        ? null
+        : {
+            ...target,
+            name: rec.name,
+            category: rec.category,
+            reason: rec.reason,
+          }
+    );
     setPendingMapFocus(target);
     setSelectedPlaceForDetail(null);
     setActiveTab('map');
@@ -2072,6 +2125,64 @@ export default function App() {
     }
     return shuffled;
   }, [places]);
+
+
+  const savedAiMapPins = useMemo(() => aiFavorites.map((item) => ({
+    key: item.key,
+    name: item.name,
+    reason: item.reason,
+    category: item.category,
+    lat: item.lat,
+    lng: item.lng,
+  })), [aiFavorites]);
+
+  useEffect(() => {
+    if (activeTab !== 'map' && tempAiPin) {
+      setTempAiPin(null);
+    }
+  }, [activeTab, tempAiPin]);
+
+  useEffect(() => {
+    if (shortsFeed.length === 0) {
+      setActiveShortId(null);
+      return;
+    }
+    setActiveShortId((current) => {
+      if (current && shortsFeed.some((item) => item.id === current)) {
+        return current;
+      }
+      return shortsFeed[0].id;
+    });
+  }, [shortsFeed]);
+
+  useEffect(() => {
+    if (activeTab !== 'shorts') return;
+    const root = shortsViewportRef.current;
+    if (!root) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+
+        if (visible[0]) {
+          const nextId = visible[0].target.getAttribute('data-short-id');
+          if (nextId) setActiveShortId(nextId);
+        }
+      },
+      {
+        root,
+        threshold: [0.45, 0.6, 0.75],
+      }
+    );
+
+    Object.values(shortsItemRefs.current).forEach((node) => {
+      if (node instanceof HTMLElement) observer.observe(node);
+    });
+
+    return () => observer.disconnect();
+  }, [activeTab, shortsFeed]);
 
   if (isConfigMissing) {
     return (
@@ -2428,6 +2539,7 @@ export default function App() {
                   anglePreset={tokyoAnglePreset}
                   places={filteredPlaces}
                   tempAiPin={tempAiPin}
+                  savedAiPins={savedAiMapPins}
                   newPlacePos={newPlacePos}
                   role={role}
                   activeTab={activeTab}
@@ -2523,20 +2635,32 @@ export default function App() {
                     </Marker>
                   ))}
 
+                  {savedAiMapPins.map((item) => (
+                    <Marker
+                      key={`saved-ai-${item.key}`}
+                      position={[item.lat, item.lng]}
+                      icon={getAiLeafletIcon('saved')}
+                    >
+                      <Popup>
+                        <div className="p-2 space-y-1">
+                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest">AI Favorite</div>
+                          <div className="font-black text-black uppercase tracking-tight">{item.name}</div>
+                          {item.reason ? <p className="text-xs text-stone-500 leading-relaxed max-w-[220px]">{item.reason}</p> : null}
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))}
+
                   {tempAiPin && (
                     <Marker 
                       position={[tempAiPin.lat, tempAiPin.lng]}
-                      icon={L.divIcon({
-                        className: 'custom-div-icon',
-                        html: `<div style="background-color: black; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-center; border: 2px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform: rotate(45deg);"><div style="transform: rotate(-45deg); color: white; font-size: 14px;">✨</div></div>`,
-                        iconSize: [32, 32],
-                        iconAnchor: [16, 32]
-                      })}
+                      icon={getAiLeafletIcon('temporary')}
                     >
                       <Popup>
-                        <div className="p-2">
-                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">AI Recommendation</div>
+                        <div className="p-2 space-y-1">
+                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Temporary AI Pin</div>
                           <div className="font-black text-black uppercase tracking-tight">{tempAiPin.name}</div>
+                          {tempAiPin.reason ? <p className="text-xs text-stone-500 leading-relaxed max-w-[220px]">{tempAiPin.reason}</p> : null}
                           <button 
                             onClick={() => setTempAiPin(null)}
                             className="mt-2 text-[9px] font-black text-rose-500 uppercase tracking-widest hover:underline"
@@ -3028,6 +3152,7 @@ export default function App() {
           {activeTab === 'shorts' && (
             <motion.div
               key="shorts"
+              ref={shortsViewportRef}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
@@ -3044,16 +3169,27 @@ export default function App() {
               ) : (
                 shortsFeed.map((item) => {
                   const isPlaceFav = favorites.some((f) => f.place_id === item.placeId);
+                  const isActiveShort = activeShortId === item.id;
+                  const videoId = extractYouTubeVideoId(item.url);
+                  const iframeSrc = `${item.embedUrl}&autoplay=${isActiveShort ? 1 : 0}&mute=1&playsinline=1&controls=1&loop=${isActiveShort && videoId ? 1 : 0}${videoId ? `&playlist=${videoId}` : ''}`;
                   return (
-                    <section key={item.id} className="min-h-full snap-start flex items-center justify-center p-4 md:p-8">
+                    <section
+                      key={item.id}
+                      data-short-id={item.id}
+                      ref={(node) => {
+                        shortsItemRefs.current[item.id] = node;
+                      }}
+                      className="min-h-full snap-start flex items-center justify-center p-4 md:p-8"
+                    >
                       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[minmax(320px,460px)_1fr] gap-6 items-center">
                         <div className="relative mx-auto w-full max-w-[420px] aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
                           <iframe
-                            src={`${item.embedUrl}&autoplay=0&mute=0&controls=1&playsinline=1`}
+                            src={iframeSrc}
                             title={`${item.placeName} short`}
                             className="w-full h-full"
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                             referrerPolicy="strict-origin-when-cross-origin"
+                            loading={isActiveShort ? 'eager' : 'lazy'}
                             allowFullScreen
                           />
                           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black via-black/70 to-transparent" />
