@@ -43,7 +43,7 @@ interface TokyoMiniatureMapProps {
   tempAiPin: TempAiPinLike | null;
   newPlacePos: { lat: number; lng: number } | null;
   role: 'admin' | 'user' | null;
-  activeTab: 'map' | 'list' | 'ai' | 'profile';
+  activeTab: 'map' | 'list' | 'shorts' | 'ai' | 'profile';
   isAdding: boolean;
   setTempAiPin: (value: TempAiPinLike | null) => void;
   setNewPlacePos: (value: { lat: number; lng: number } | null) => void;
@@ -51,6 +51,8 @@ interface TokyoMiniatureMapProps {
   setMapBounds: (bounds: L.LatLngBounds | null) => void;
   mapRef: MutableRefObject<MapNavigator | null>;
   onSelectPlace: (place: any) => void;
+  focusTarget: { lat: number; lng: number } | null;
+  onFocusHandled: () => void;
 }
 
 declare global {
@@ -342,6 +344,8 @@ export default function TokyoMiniatureMap({
   setMapBounds,
   mapRef,
   onSelectPlace,
+  focusTarget,
+  onFocusHandled,
 }: TokyoMiniatureMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -529,6 +533,18 @@ export default function TokyoMiniatureMap({
         .addTo(map);
     }
   }, [newPlacePos]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !focusTarget || activeTab !== 'map') return;
+    map.flyTo({
+      center: [focusTarget.lng, focusTarget.lat],
+      zoom: Math.max(map.getZoom?.() ?? 16, 16),
+      duration: 1200,
+      essential: true,
+    });
+    onFocusHandled();
+  }, [focusTarget, activeTab, onFocusHandled]);
 
   if (!hasKey) {
     return (

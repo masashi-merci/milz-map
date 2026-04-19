@@ -236,7 +236,7 @@ L.Icon.Default.mergeOptions({
 });
 
 type UserRole = 'admin' | 'user';
-type Tab = 'map' | 'list' | 'ai' | 'profile';
+type Tab = 'map' | 'list' | 'shorts' | 'ai' | 'profile';
 
 interface Review {
   id: string;
@@ -320,6 +320,19 @@ interface AiFavoriteItem {
   created_at: string;
 }
 
+interface ShortFeedItem {
+  id: string;
+  placeId: string;
+  placeName: string;
+  category: string;
+  description: string;
+  lat: number;
+  lng: number;
+  url: string;
+  embedUrl: string;
+  imageUrl?: string;
+}
+
 type Locale = "jp" | "en";
 
 const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
@@ -350,6 +363,7 @@ const uiCopy: Record<Locale, Record<string, string>> = {
   jp: {
     map: 'MAP',
     spots: 'SPOTS',
+    shorts: 'SHORTS',
     ai: 'AI',
     profile: 'PROFILE',
     aiEyebrow: 'MILZ AI DISCOVERY',
@@ -374,6 +388,7 @@ const uiCopy: Record<Locale, Record<string, string>> = {
   en: {
     map: 'MAP',
     spots: 'SPOTS',
+    shorts: 'SHORTS',
     ai: 'AI',
     profile: 'PROFILE',
     aiEyebrow: 'MILZ AI DISCOVERY',
@@ -394,6 +409,10 @@ const uiCopy: Record<Locale, Record<string, string>> = {
     savedAt: 'Saved',
     aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
     language: 'Language',
+    shortsEmpty: 'No shorts have been registered yet.',
+    shortsHint: 'Registered YouTube Shorts will appear here in a swipe-style feed.',
+    openSpot: 'Spot Details',
+    backToAi: 'Back to AI',
   },
 };
 
@@ -408,7 +427,9 @@ function MapEvents({
   setNewPlacePos, 
   setIsAdding, 
   setMapBounds, 
-  mapRef 
+  mapRef,
+  focusTarget,
+  onFocusHandled,
 }: { 
   user: any, 
   role: UserRole | null, 
@@ -416,7 +437,9 @@ function MapEvents({
   setNewPlacePos: (pos: { lat: number; lng: number } | null) => void, 
   setIsAdding: (val: boolean) => void, 
   setMapBounds: (bounds: L.LatLngBounds | null) => void, 
-  mapRef: React.MutableRefObject<L.Map | null>
+  mapRef: React.MutableRefObject<L.Map | null>,
+  focusTarget: { lat: number; lng: number } | null,
+  onFocusHandled: () => void,
 }) {
   const map = useMap();
   
@@ -433,6 +456,12 @@ function MapEvents({
       mapRef.current = null;
     };
   }, [map, mapRef, setMapBounds]);
+
+  useEffect(() => {
+    if (!map || !focusTarget || activeTab !== 'map') return;
+    map.flyTo([focusTarget.lat, focusTarget.lng], 16, { duration: 1.2 });
+    onFocusHandled();
+  }, [map, focusTarget, activeTab, onFocusHandled]);
 
   useMapEvents({
     click(e) {
@@ -1812,11 +1841,8 @@ export default function App() {
     const target = { lat: normalized.lat, lng: normalized.lng };
     setTempAiPin({ ...target, name: rec.name });
     setPendingMapFocus(target);
+    setSelectedPlaceForDetail(null);
     setActiveTab('map');
-
-    window.setTimeout(() => {
-      mapRef.current?.flyTo([target.lat, target.lng], 16, { duration: 1.2 });
-    }, 120);
   };
   const handleSearchLocation = async () => {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
@@ -1982,32 +2008,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab !== 'map' || !pendingMapFocus) return;
-
-    let attempts = 0;
-    let cancelled = false;
-
-    const focusMap = () => {
-      if (cancelled) return;
-      if (mapRef.current) {
-        mapRef.current.flyTo([pendingMapFocus.lat, pendingMapFocus.lng], 16, { duration: 1.2 });
-        setPendingMapFocus(null);
-        return;
-      }
-      if (attempts < 20) {
-        attempts += 1;
-        window.setTimeout(focusMap, 180);
-      }
-    };
-
-    focusMap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, pendingMapFocus, mapStyle]);
-
-  useEffect(() => {
     if (activeTab !== 'ai') return;
     if (!aiResults || !aiResultsLocale || aiResultsLocale === locale || aiLoading) return;
     handleAiRecommend();
@@ -2043,6 +2043,35 @@ export default function App() {
       return matchesSearch && matchesCategory;
     });
   }, [aiFavorites, searchQuery, selectedCategory]);
+
+  const shortsFeed = useMemo<ShortFeedItem[]>(() => {
+    const items: ShortFeedItem[] = [];
+    places.forEach((place) => {
+      (place.videos || []).forEach((url, index) => {
+        const embedUrl = getYouTubeEmbedUrl(url);
+        if (!embedUrl) return;
+        items.push({
+          id: `${place.id}::${index}`,
+          placeId: place.id,
+          placeName: place.name,
+          category: place.category,
+          description: place.description || place.detailed_description || '',
+          lat: place.lat,
+          lng: place.lng,
+          url,
+          embedUrl,
+          imageUrl: place.image_url,
+        });
+      });
+    });
+
+    const shuffled = [...items];
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor((Math.sin(i * 97.13 + shuffled.length) * 10000 % 1 + 1) % 1 * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }, [places]);
 
   if (isConfigMissing) {
     return (
@@ -2409,6 +2438,8 @@ export default function App() {
                   setMapBounds={setMapBounds}
                   mapRef={mapRef}
                   onSelectPlace={setSelectedPlaceForDetail}
+                  focusTarget={pendingMapFocus}
+                  onFocusHandled={() => setPendingMapFocus(null)}
                 />
               ) : (
                 <MapContainer 
@@ -2430,6 +2461,8 @@ export default function App() {
                     setIsAdding={setIsAdding}
                     setMapBounds={setMapBounds}
                     mapRef={mapRef}
+                    focusTarget={pendingMapFocus}
+                    onFocusHandled={() => setPendingMapFocus(null)}
                   />
                   
                   {filteredPlaces.map((place) => (
@@ -2598,73 +2631,127 @@ export default function App() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {(listFilter === 'all' ? filteredPlaces : favoritePlaces).map((place) => {
-                  const isFav = favorites.some(f => f.place_id === place.id);
-                  return (
-                    <motion.div 
+                {listFilter === 'ai_favorites' ? (
+                  aiFavoritePlaces.length > 0 ? aiFavoritePlaces.map((item) => (
+                    <motion.div
                       layout
-                      key={place.id}
+                      key={item.key}
                       className="bg-white p-6 border border-stone-100 group shadow-sm hover:shadow-xl transition-all duration-500"
                     >
-                      <div className="flex gap-6">
-                        <div className="w-24 h-24 flex items-center justify-center shrink-0 bg-stone-50 border border-stone-100 overflow-hidden rounded-2xl">
-                          {place.image_url ? (
-                            <img src={place.image_url} className="w-full h-full object-cover transition-all duration-500" referrerPolicy="no-referrer" />
-                          ) : (
-                            <MapPin className="w-8 h-8 text-stone-200" />
-                          )}
+                      <div className="space-y-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="space-y-2 min-w-0">
+                            <p className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{item.category}</p>
+                            <h3 className="text-lg font-black text-black leading-tight">{item.name}</h3>
+                          </div>
+                          <button
+                            onClick={() => handleSaveAiRecommendation(item)}
+                            className="p-2.5 rounded-full transition-all active:scale-90 border text-rose-500 border-rose-100 bg-rose-50/50"
+                            title={t('saveAi')}
+                          >
+                            <Heart className="w-4 h-4 fill-current" />
+                          </button>
                         </div>
-                        <div className="flex-1 min-w-0 space-y-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-1 min-w-0">
-                              <p className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{place.category}</p>
-                              <h3 className="text-lg font-black text-black leading-tight truncate">{place.name}</h3>
-                            </div>
-                            <button
-                              onClick={() => handleToggleFavorite(place.id)}
-                              className={cn(
-                                "p-2.5 rounded-full transition-all active:scale-90 border",
-                                isFav
-                                  ? "text-rose-500 border-rose-100 bg-rose-50/50"
-                                  : "text-stone-300 border-stone-100 hover:text-stone-600 hover:border-stone-200"
-                              )}
-                            >
-                              <Heart className={cn("w-4 h-4", isFav && "fill-current")} />
-                            </button>
-                          </div>
 
-                          <p className="text-sm text-stone-500 leading-relaxed font-medium line-clamp-3">
-                            {place.description || 'No description available.'}
-                          </p>
+                        <p className="text-sm text-stone-500 leading-relaxed font-medium line-clamp-4">{item.reason}</p>
 
-                          <div className="flex items-center justify-between gap-3 pt-2">
-                            {place.website_url ? (
-                              <a
-                                href={place.website_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-2 text-[10px] font-black text-stone-400 hover:text-black uppercase tracking-widest"
-                              >
-                                Visit Site
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            ) : (
-                              <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">No Link</span>
-                            )}
+                        <div className="flex items-center justify-between pt-2">
+                          <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">{t('savedAt')} {new Date(item.created_at).toLocaleDateString()}</span>
+                        </div>
 
-                            <button
-                              onClick={() => setSelectedPlaceForDetail(place)}
-                              className="px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-stone-800 transition-all"
-                            >
-                              Details
-                              <ChevronRight className="w-3 h-3" />
-                            </button>
-                          </div>
+                        <div className="flex items-center gap-3 pt-1">
+                          <button
+                            onClick={() => handleViewOnMap(item)}
+                            className="flex-1 px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 hover:bg-stone-800 transition-all"
+                          >
+                            <MapPin className="w-3 h-3" />
+                            {t('viewOnMap')}
+                          </button>
+                          <button
+                            onClick={() => setActiveTab('ai')}
+                            className="px-4 py-3 border border-stone-200 text-stone-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:border-black hover:text-black transition-all"
+                          >
+                            {t('backToAi')}
+                          </button>
                         </div>
                       </div>
                     </motion.div>
-                  );
-                })}
+                  )) : (
+                    <div className="col-span-full bg-white border border-stone-100 rounded-[2rem] shadow-sm px-8 py-14 text-center space-y-3">
+                      <Heart className="w-8 h-8 mx-auto text-stone-200" />
+                      <p className="text-sm font-black text-stone-500 uppercase tracking-[0.2em]">{t('noAiFavorites')}</p>
+                      <p className="text-sm text-stone-400">{t('openAiTabHint')}</p>
+                    </div>
+                  )
+                ) : (
+                  (listFilter === 'all' ? filteredPlaces : favoritePlaces).map((place) => {
+                    const isFav = favorites.some(f => f.place_id === place.id);
+                    return (
+                      <motion.div 
+                        layout
+                        key={place.id}
+                        className="bg-white p-6 border border-stone-100 group shadow-sm hover:shadow-xl transition-all duration-500"
+                      >
+                        <div className="flex gap-6">
+                          <div className="w-24 h-24 flex items-center justify-center shrink-0 bg-stone-50 border border-stone-100 overflow-hidden rounded-2xl">
+                            {place.image_url ? (
+                              <img src={place.image_url} className="w-full h-full object-cover transition-all duration-500" referrerPolicy="no-referrer" />
+                            ) : (
+                              <MapPin className="w-8 h-8 text-stone-200" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="space-y-1 min-w-0">
+                                <p className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{place.category}</p>
+                                <h3 className="text-lg font-black text-black leading-tight truncate">{place.name}</h3>
+                              </div>
+                              <button
+                                onClick={() => handleToggleFavorite(place.id)}
+                                className={cn(
+                                  "p-2.5 rounded-full transition-all active:scale-90 border",
+                                  isFav
+                                    ? "text-rose-500 border-rose-100 bg-rose-50/50"
+                                    : "text-stone-300 border-stone-100 hover:text-stone-600 hover:border-stone-200"
+                                )}
+                              >
+                                <Heart className={cn("w-4 h-4", isFav && "fill-current")} />
+                              </button>
+                            </div>
+
+                            <p className="text-sm text-stone-500 leading-relaxed font-medium line-clamp-3">
+                              {place.description || 'No description available.'}
+                            </p>
+
+                            <div className="flex items-center justify-between gap-3 pt-2">
+                              {place.website_url ? (
+                                <a
+                                  href={place.website_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 text-[10px] font-black text-stone-400 hover:text-black uppercase tracking-widest"
+                                >
+                                  Visit Site
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">No Link</span>
+                              )}
+
+                              <button
+                                onClick={() => setSelectedPlaceForDetail(place)}
+                                className="px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-stone-800 transition-all"
+                              >
+                                Details
+                                <ChevronRight className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })
+                )}
               </div>
             </motion.div>
           )}
@@ -2684,7 +2771,7 @@ export default function App() {
                     <h2 className="text-5xl font-black text-black leading-[1.1] tracking-tight max-w-2xl">
                       {t('aiTitle')}
                     </h2>
-                    <p className="text-sm text-stone-400 font-medium max-w-xl">
+                    <p className="text-sm text-stone-400 font-medium max-w-2xl">
                       {t('aiSubtitle')}
                     </p>
                   </div>
@@ -2935,6 +3022,91 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'shorts' && (
+            <motion.div
+              key="shorts"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="h-full overflow-y-auto bg-black text-white pb-28 snap-y snap-mandatory"
+            >
+              {shortsFeed.length === 0 ? (
+                <div className="h-full flex items-center justify-center px-6">
+                  <div className="max-w-md w-full text-center space-y-4">
+                    <Play className="w-10 h-10 mx-auto text-white/30" />
+                    <h3 className="text-xl font-black uppercase tracking-[0.2em]">{t('shortsEmpty')}</h3>
+                    <p className="text-sm text-white/60">{t('shortsHint')}</p>
+                  </div>
+                </div>
+              ) : (
+                shortsFeed.map((item) => {
+                  const isPlaceFav = favorites.some((f) => f.place_id === item.placeId);
+                  return (
+                    <section key={item.id} className="min-h-full snap-start flex items-center justify-center p-4 md:p-8">
+                      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[minmax(320px,460px)_1fr] gap-6 items-center">
+                        <div className="relative mx-auto w-full max-w-[420px] aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
+                          <iframe
+                            src={`${item.embedUrl}&autoplay=0&mute=0&controls=1&playsinline=1`}
+                            title={`${item.placeName} short`}
+                            className="w-full h-full"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            referrerPolicy="strict-origin-when-cross-origin"
+                            allowFullScreen
+                          />
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                          <div className="absolute inset-x-0 bottom-0 p-5 space-y-2">
+                            <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/60">{item.category}</div>
+                            <h3 className="text-2xl font-black leading-tight">{item.placeName}</h3>
+                            {item.description && (
+                              <p className="text-sm text-white/70 line-clamp-3">{item.description}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-6 lg:pr-8">
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/45">MILZ SHORTS</p>
+                            <h2 className="text-4xl md:text-6xl font-black leading-[0.95] tracking-tight">{item.placeName}</h2>
+                            <p className="text-sm md:text-base text-white/65 max-w-xl leading-relaxed">{item.description || (locale === 'jp' ? 'このSpotに登録されたショート動画です。' : 'A short video registered for this spot.')}</p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              onClick={() => handleToggleFavorite(item.placeId)}
+                              className={cn(
+                                "inline-flex items-center gap-2 px-5 py-3 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                                isPlaceFav
+                                  ? "border-rose-300 bg-rose-500/10 text-rose-200"
+                                  : "border-white/15 text-white hover:border-white/40 hover:bg-white/5"
+                              )}
+                            >
+                              <Heart className={cn("w-4 h-4", isPlaceFav && "fill-current")} />
+                              {isPlaceFav ? 'Saved Spot' : 'Save Spot'}
+                            </button>
+                            <button
+                              onClick={() => handleViewOnMap({ name: item.placeName, lat: item.lat, lng: item.lng })}
+                              className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] hover:border-white/40 hover:bg-white/5 transition-all"
+                            >
+                              <MapPinned className="w-4 h-4" />
+                              {t('viewOnMap')}
+                            </button>
+                            <button
+                              onClick={() => setSelectedPlaceForDetail(places.find((place) => place.id === item.placeId) || null)}
+                              className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-[10px] font-black uppercase tracking-[0.22em] hover:bg-stone-100 transition-all"
+                            >
+                              <ArrowUpRight className="w-4 h-4" />
+                              {t('openSpot')}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })
+              )}
             </motion.div>
           )}
 
@@ -3259,7 +3431,7 @@ export default function App() {
 
       {/* Navigation */}
       <div className="fixed bottom-5 left-4 right-4 z-[1001] pointer-events-none">
-        <nav className="max-w-xl mx-auto bg-white/88 backdrop-blur-xl border border-stone-200/70 shadow-[0_20px_50px_rgba(0,0,0,0.08)] rounded-[1.8rem] pointer-events-auto overflow-hidden">
+        <nav className="max-w-2xl mx-auto bg-white/88 backdrop-blur-xl border border-stone-200/70 shadow-[0_20px_50px_rgba(0,0,0,0.08)] rounded-[1.8rem] pointer-events-auto overflow-hidden">
           <div className="px-5 py-2.5 flex items-center justify-between gap-2">
             <button 
               onClick={() => setActiveTab('map')}
@@ -3290,6 +3462,21 @@ export default function App() {
                 <ListIcon className="w-4 h-4" />
               </div>
               <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('spots')}</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('shorts')}
+              className={cn(
+                "flex flex-col items-center gap-1 transition-all group flex-1",
+                activeTab === 'shorts' ? "text-black" : "text-stone-300 hover:text-stone-500"
+              )}
+            >
+              <div className={cn(
+                "p-1.5 rounded-[1rem] transition-all",
+                activeTab === 'shorts' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
+              )}>
+                <Play className="w-4 h-4" />
+              </div>
+              <span className="text-[8px] font-black uppercase tracking-[0.22em]">{t('shorts')}</span>
             </button>
             <button 
               onClick={() => setActiveTab('ai')}
