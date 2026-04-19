@@ -324,8 +324,27 @@ type Locale = "jp" | "en";
 
 const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
 
-const createAiFavoriteKey = (rec: { name: string; lat: number; lng: number }) =>
-  `${rec.name}::${rec.lat.toFixed(5)}::${rec.lng.toFixed(5)}`;
+const normalizeMapCoords = (latInput: number | string, lngInput: number | string) => {
+  let lat = Number(latInput);
+  let lng = Number(lngInput);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+    [lat, lng] = [lng, lat];
+  }
+
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+
+  return { lat, lng };
+};
+
+const createAiFavoriteKey = (rec: { name: string; lat: number; lng: number }) => {
+  const normalized = normalizeMapCoords(rec.lat, rec.lng);
+  const lat = normalized?.lat ?? Number(rec.lat) ?? 0;
+  const lng = normalized?.lng ?? Number(rec.lng) ?? 0;
+  return `${rec.name}::${lat.toFixed(5)}::${lng.toFixed(5)}`;
+};
 
 const uiCopy: Record<Locale, Record<string, string>> = {
   jp: {
@@ -345,6 +364,10 @@ const uiCopy: Record<Locale, Record<string, string>> = {
     viewOnMap: 'View on MAP',
     saveAi: 'AI Save',
     savedAi: 'Saved',
+    aiFavoritesTab: 'AI FAVORITES',
+    noAiFavorites: 'AI Recommendationのお気に入りはまだありません。',
+    openAiTabHint: 'AIタブで保存したおすすめがここに表示されます。',
+    savedAt: 'Saved',
     aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
     language: 'Language',
   },
@@ -365,6 +388,10 @@ const uiCopy: Record<Locale, Record<string, string>> = {
     viewOnMap: 'View on MAP',
     saveAi: 'Save',
     savedAi: 'Saved',
+    aiFavoritesTab: 'AI FAVORITES',
+    noAiFavorites: 'No AI favorites saved yet.',
+    openAiTabHint: 'Recommendations you save from the AI tab will appear here.',
+    savedAt: 'Saved',
     aiGeneratedNote: 'AI recommendations are generated based on the selected scope. Accuracy may vary by region.',
     language: 'Language',
   },
@@ -528,7 +555,7 @@ export default function App() {
   const [isUpdatingDetail, setIsUpdatingDetail] = useState(false);
   const [isMapBoundsFilterEnabled, setIsMapBoundsFilterEnabled] = useState(true);
   const [isFiltering, setIsFiltering] = useState(false);
-  const [listFilter, setListFilter] = useState<'all' | 'favorites'>('all');
+  const [listFilter, setListFilter] = useState<'all' | 'favorites' | 'ai_favorites'>('all');
   const [isFetching, setIsFetching] = useState(false);
   const [mapStyle, setMapStyle] = useState<MapThemeKey>(() => {
     const saved = localStorage.getItem('milz_map_style');
@@ -1129,6 +1156,48 @@ export default function App() {
     };
   }, [user, isConfigMissing, fetchFavorites]);
 
+  useEffect(() => {
+    if (!user?.id) {
+      setAiFavorites([]);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`);
+      if (!raw) {
+        setAiFavorites([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setAiFavorites([]);
+        return;
+      }
+
+      const normalizedItems = parsed
+        .map((item: any) => {
+          const normalized = normalizeMapCoords(item?.lat, item?.lng);
+          if (!normalized || !item?.name) return null;
+          return {
+            key: item?.key || createAiFavoriteKey({ name: item.name, lat: normalized.lat, lng: normalized.lng }),
+            name: item.name,
+            reason: item?.reason || '',
+            category: item?.category || 'AI Recommendation',
+            lat: normalized.lat,
+            lng: normalized.lng,
+            created_at: item?.created_at || new Date().toISOString(),
+          } satisfies AiFavoriteItem;
+        })
+        .filter(Boolean) as AiFavoriteItem[];
+
+      setAiFavorites(normalizedItems);
+    } catch (error) {
+      console.error('Failed to load AI favorites:', error);
+      setAiFavorites([]);
+    }
+  }, [user?.id]);
+
   const handleLogin = async () => {
     setAuthError('');
     setPendingRole(selectedAuthRole);
@@ -1691,22 +1760,29 @@ export default function App() {
 
   const handleSaveAiRecommendation = async (rec: { name: string; reason: string; category: string; lat: number; lng: number }) => {
     if (!user) {
-      showToast("ログインが必要です。", "error");
+      showToast(locale === 'jp' ? 'ログインが必要です。' : 'Please sign in first.', 'error');
       return;
     }
 
-    const key = createAiFavoriteKey(rec);
+    const normalized = normalizeMapCoords(rec.lat, rec.lng);
+    if (!normalized) {
+      showToast(locale === 'jp' ? '座標を読み取れませんでした。' : 'The map coordinates could not be read.', 'error');
+      return;
+    }
+
+    const normalizedRec = { ...rec, lat: normalized.lat, lng: normalized.lng };
+    const key = createAiFavoriteKey(normalizedRec);
     const exists = aiFavorites.some((item) => item.key === key);
     const next = exists
       ? aiFavorites.filter((item) => item.key !== key)
       : [
           {
             key,
-            name: rec.name,
-            reason: rec.reason,
-            category: rec.category,
-            lat: rec.lat,
-            lng: rec.lng,
+            name: normalizedRec.name,
+            reason: normalizedRec.reason,
+            category: normalizedRec.category,
+            lat: normalizedRec.lat,
+            lng: normalizedRec.lng,
             created_at: new Date().toISOString(),
           },
           ...aiFavorites,
@@ -1718,13 +1794,29 @@ export default function App() {
       window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
     }
 
-    showToast(exists ? "AIおすすめを保存一覧から外しました。" : "AIおすすめを保存しました。", "success");
+    showToast(
+      exists
+        ? (locale === 'jp' ? 'AIおすすめを保存一覧から外しました。' : 'Removed from AI favorites.')
+        : (locale === 'jp' ? 'AIおすすめを保存しました。' : 'Saved to AI favorites.'),
+      'success'
+    );
   };
 
   const handleViewOnMap = (rec: { name: string; lat: number; lng: number }) => {
-    setTempAiPin({ lat: rec.lat, lng: rec.lng, name: rec.name });
-    setPendingMapFocus({ lat: rec.lat, lng: rec.lng });
+    const normalized = normalizeMapCoords(rec.lat, rec.lng);
+    if (!normalized) {
+      showToast(locale === 'jp' ? '地図へ移動できる座標が見つかりませんでした。' : 'No valid coordinates were found for this recommendation.', 'error');
+      return;
+    }
+
+    const target = { lat: normalized.lat, lng: normalized.lng };
+    setTempAiPin({ ...target, name: rec.name });
+    setPendingMapFocus(target);
     setActiveTab('map');
+
+    window.setTimeout(() => {
+      mapRef.current?.flyTo([target.lat, target.lng], 16, { duration: 1.2 });
+    }, 120);
   };
   const handleSearchLocation = async () => {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
@@ -1939,6 +2031,18 @@ export default function App() {
   const favoritePlaces = useMemo(() => {
     return places.filter(p => favorites.some(f => f.place_id === p.id));
   }, [places, favorites]);
+
+  const aiFavoritePlaces = useMemo(() => {
+    return aiFavorites.filter((item) => {
+      const matchesSearch =
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [aiFavorites, searchQuery, selectedCategory]);
 
   if (isConfigMissing) {
     return (
@@ -2460,6 +2564,15 @@ export default function App() {
                   )}
                 >
                   FAVORITES
+                </button>
+                <button 
+                  onClick={() => setListFilter('ai_favorites')}
+                  className={cn(
+                    "flex-1 py-2 text-[10px] font-black transition-all uppercase tracking-widest rounded-lg",
+                    listFilter === 'ai_favorites' ? "bg-black text-white" : "text-stone-400"
+                  )}
+                >
+                  {t('aiFavoritesTab')}
                 </button>
               </div>
 
