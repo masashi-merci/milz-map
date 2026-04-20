@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import L from 'leaflet';
+
+import type { IllustrationThemeKey } from './illustrationMaps';
 
 export type TokyoAnglePreset = 'top' | 'soft' | 'miniature';
 
@@ -34,25 +36,21 @@ interface TempAiPinLike {
   lat: number;
   lng: number;
   name: string;
-  category?: string;
-  reason?: string;
 }
 
-interface SavedAiPinLike {
+interface AiFavoritePinLike {
   key: string;
   lat: number;
   lng: number;
   name: string;
-  category?: string;
-  reason?: string;
 }
 
 interface TokyoMiniatureMapProps {
   apiKey?: string;
-  anglePreset: TokyoAnglePreset;
+  styleVariant: IllustrationThemeKey;
   places: PlaceLike[];
   tempAiPin: TempAiPinLike | null;
-  savedAiPins: SavedAiPinLike[];
+  aiFavoritePins: AiFavoritePinLike[];
   newPlacePos: { lat: number; lng: number } | null;
   role: 'admin' | 'user' | null;
   activeTab: 'map' | 'list' | 'shorts' | 'ai' | 'profile';
@@ -129,7 +127,7 @@ function ensureMapTilerAssets() {
   return sdkLoader;
 }
 
-function createMarkerNode(kind: 'place' | 'ai' | 'ai_saved' | 'new', label?: string, category?: string) {
+function createMarkerNode(kind: 'place' | 'ai' | 'aiSaved' | 'new', label?: string, category?: string) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'milz-maptiler-marker';
@@ -142,20 +140,13 @@ function createMarkerNode(kind: 'place' | 'ai' | 'ai_saved' | 'new', label?: str
     inner.style.background = markerStyle.bg;
     inner.style.color = markerStyle.fg;
     inner.innerHTML = markerStyle.svg;
-  } else if (kind === 'ai_saved') {
-    inner.style.background = '#111111';
-    inner.style.color = '#ffffff';
-    inner.textContent = '★';
   } else {
-    inner.style.background = kind === 'new' ? '#16a34a' : '#ffffff';
-    inner.style.color = kind === 'new' ? '#ffffff' : '#111111';
-    inner.style.border = kind === 'ai' ? '3px solid #111111' : '3px solid #ffffff';
-    inner.textContent = kind === 'ai' ? 'AI' : kind === 'new' ? '+' : '';
+    inner.textContent = kind === 'ai' ? 'AI' : kind === 'aiSaved' ? '★' : kind === 'new' ? '+' : '';
   }
 
   el.appendChild(inner);
 
-  if (label && (kind === 'place' || kind === 'ai_saved')) {
+  if (label && kind === 'place') {
     const tag = document.createElement('span');
     tag.className = 'milz-maptiler-marker__label';
     tag.textContent = label;
@@ -315,15 +306,15 @@ function add3dBuildings(map: any, preset: TokyoAnglePreset) {
 function applyMiniaturePresentation(
   map: any,
   apiKey: string,
-  presetKey: TokyoAnglePreset,
+  visualPresetKey: TokyoAnglePreset,
   options: { instant?: boolean; preserveCenter?: boolean } = {},
 ) {
-  const preset = TOKYO_ANGLE_PRESETS[presetKey];
+  const preset = TOKYO_ANGLE_PRESETS.top;
   const duration = options.instant ? 0 : 1100;
 
-  addAtmosphere(map, presetKey);
-  addTerrain(map, apiKey, presetKey);
-  add3dBuildings(map, presetKey);
+  addAtmosphere(map, visualPresetKey);
+  addTerrain(map, apiKey, visualPresetKey);
+  add3dBuildings(map, visualPresetKey);
 
   try {
     const currentCenter = map.getCenter?.();
@@ -350,10 +341,10 @@ function applyMiniaturePresentation(
 
 export default function TokyoMiniatureMap({
   apiKey,
-  anglePreset,
+  styleVariant,
   places,
   tempAiPin,
-  savedAiPins,
+  aiFavoritePins,
   newPlacePos,
   role,
   activeTab,
@@ -370,13 +361,13 @@ export default function TokyoMiniatureMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRefs = useRef<any[]>([]);
-  const savedAiMarkerRefs = useRef<any[]>([]);
+  const aiFavoriteMarkerRefs = useRef<any[]>([]);
   const tempMarkerRef = useRef<any | null>(null);
   const addMarkerRef = useRef<any | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const hasKey = Boolean(apiKey && apiKey.trim());
-  const preset = TOKYO_ANGLE_PRESETS[anglePreset];
-  const styleTarget = useMemo(() => ({ anglePreset }), [anglePreset]);
+  const visualPreset = styleVariant === 'style3' ? 'soft' : styleVariant === 'style4' ? 'miniature' : 'top';
+  const preset = TOKYO_ANGLE_PRESETS.top;
   const latestRoleRef = useRef(role);
   const latestTabRef = useRef(activeTab);
   const latestAddingRef = useRef(isAdding);
@@ -413,7 +404,7 @@ export default function TokyoMiniatureMap({
 
         const map = new sdk.Map({
           container: containerRef.current,
-          style: resolveStyle(sdk, anglePreset),
+          style: resolveStyle(sdk, visualPreset),
           center: [TOKYO_CENTER[1], TOKYO_CENTER[0]],
           zoom: preset.zoom,
           bearing: preset.bearing,
@@ -439,16 +430,16 @@ export default function TokyoMiniatureMap({
         };
 
         map.on('load', () => {
-          applyMiniaturePresentation(map, apiKey!, anglePreset, { instant: true, preserveCenter: false });
+          applyMiniaturePresentation(map, apiKey!, visualPreset, { instant: true, preserveCenter: false });
           syncBounds();
         });
 
         map.on('style.load', () => {
-          applyMiniaturePresentation(map, apiKey!, anglePreset, { instant: true, preserveCenter: true });
+          applyMiniaturePresentation(map, apiKey!, visualPreset, { instant: true, preserveCenter: true });
         });
 
         map.on('idle', () => {
-          add3dBuildings(map, anglePreset);
+          add3dBuildings(map, visualPreset);
         });
 
         map.on('moveend', syncBounds);
@@ -469,34 +460,34 @@ export default function TokyoMiniatureMap({
       cancelled = true;
       markerRefs.current.forEach((marker) => marker.remove?.());
       markerRefs.current = [];
-      savedAiMarkerRefs.current.forEach((marker) => marker.remove?.());
-      savedAiMarkerRefs.current = [];
+      aiFavoriteMarkerRefs.current.forEach((marker) => marker.remove?.());
+      aiFavoriteMarkerRefs.current = [];
       tempMarkerRef.current?.remove?.();
       addMarkerRef.current?.remove?.();
       mapInstanceRef.current?.remove?.();
       mapInstanceRef.current = null;
       mapRef.current = null;
     };
-  }, [apiKey, hasKey]);
+  }, [apiKey, hasKey, visualPreset, preset]);
 
   useEffect(() => {
     const sdk = window.maptilersdk;
     const map = mapInstanceRef.current;
     if (!sdk || !map || !hasKey) return;
 
-    map.setStyle(resolveStyle(sdk, styleTarget.anglePreset));
+    map.setStyle(resolveStyle(sdk, visualPreset));
     map.once('style.load', () => {
-      applyMiniaturePresentation(map, apiKey!, styleTarget.anglePreset, { preserveCenter: true });
+      applyMiniaturePresentation(map, apiKey!, visualPreset, { preserveCenter: true });
     });
-  }, [apiKey, hasKey, styleTarget]);
+  }, [apiKey, hasKey, visualPreset]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !hasKey) return;
     map.setMinZoom?.(preset.minZoom);
     map.setMaxZoom?.(preset.maxZoom);
-    applyMiniaturePresentation(map, apiKey!, anglePreset, { preserveCenter: true });
-  }, [anglePreset, apiKey, hasKey, preset]);
+    applyMiniaturePresentation(map, apiKey!, visualPreset, { preserveCenter: true });
+  }, [visualPreset, apiKey, hasKey, preset]);
 
   useEffect(() => {
     const sdk = window.maptilersdk;
@@ -527,18 +518,17 @@ export default function TokyoMiniatureMap({
     const map = mapInstanceRef.current;
     if (!sdk || !map) return;
 
-    savedAiMarkerRefs.current.forEach((marker) => marker.remove?.());
-    savedAiMarkerRefs.current = [];
+    aiFavoriteMarkerRefs.current.forEach((marker) => marker.remove?.());
+    aiFavoriteMarkerRefs.current = [];
 
-    savedAiPins.forEach((pin) => {
-      const el = createMarkerNode('ai_saved');
-      el.setAttribute('title', pin.name);
+    aiFavoritePins.forEach((place) => {
+      const el = createMarkerNode('aiSaved');
       const marker = new sdk.Marker({ element: el, anchor: 'bottom' })
-        .setLngLat([pin.lng, pin.lat])
+        .setLngLat([place.lng, place.lat])
         .addTo(map);
-      savedAiMarkerRefs.current.push(marker);
+      aiFavoriteMarkerRefs.current.push(marker);
     });
-  }, [savedAiPins]);
+  }, [aiFavoritePins]);
 
   useEffect(() => {
     const sdk = window.maptilersdk;

@@ -1,4 +1,4 @@
-export type IllustrationThemeKey = 'tokyo';
+export type IllustrationThemeKey = 'style2' | 'style3' | 'style4';
 export type MapThemeKey = 'original' | IllustrationThemeKey;
 
 export type LatLngTuple = [number, number];
@@ -65,7 +65,9 @@ export const MAP_THEMES: Record<MapThemeKey, MapTheme> = {
     url: baseTileUrl,
     attribution: baseAttribution,
   },
-  tokyo: TOKYO_ILLUSTRATION_THEME,
+  style2: { ...TOKYO_ILLUSTRATION_THEME, name: 'Style2', description: 'Current TOP visual style in a top-down view' },
+  style3: { ...TOKYO_ILLUSTRATION_THEME, name: 'Style3', description: 'Current Soft Tilt visual style in a top-down view' },
+  style4: { ...TOKYO_ILLUSTRATION_THEME, name: 'Style4', description: 'Current Miniature visual style in a top-down view' },
 };
 
-export const isIllustrationTheme = (theme: MapThemeKey): theme is IllustrationThemeKey => theme === 'tokyo';
+export const isIllustrationTheme = (theme: MapThemeKey): theme is IllustrationThemeKey => ['style2', 'style3', 'style4'].includes(theme);

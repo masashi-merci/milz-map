@@ -70,6 +70,7 @@ import {
   Award,
   Save,
   Upload,
+  Layers3,
 } from 'lucide-react';
 
 // DropZone component for drag & drop uploads
@@ -138,7 +139,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Country, State, City } from 'country-state-city';
 import { MAP_THEMES, TOKYO_ILLUSTRATION_THEME, isIllustrationTheme, type MapThemeKey } from './illustrationMaps';
-import TokyoMiniatureMap, { TOKYO_ANGLE_PRESETS, type TokyoAnglePreset, type MapNavigator } from './TokyoMiniatureMap';
+import TokyoMiniatureMap, { type MapNavigator } from './TokyoMiniatureMap';
 import MilzLanding from './MilzLanding';
 
 // Utility for tailwind classes
@@ -309,9 +310,13 @@ interface TempAiPin {
   lat: number;
   lng: number;
   name: string;
-  category?: string;
-  reason?: string;
 }
+interface AiFavoriteTranslation {
+  name: string;
+  reason: string;
+  category: string;
+}
+
 interface AiFavoriteItem {
   key: string;
   name: string;
@@ -320,6 +325,7 @@ interface AiFavoriteItem {
   lat: number;
   lng: number;
   created_at: string;
+  translations?: Partial<Record<Locale, AiFavoriteTranslation>>;
 }
 
 interface ShortFeedItem {
@@ -354,11 +360,91 @@ const normalizeMapCoords = (latInput: number | string, lngInput: number | string
   return { lat, lng };
 };
 
-const createAiFavoriteKey = (rec: { name: string; lat: number; lng: number }) => {
+const createAiFavoriteKey = (rec: { lat: number; lng: number }) => {
   const normalized = normalizeMapCoords(rec.lat, rec.lng);
   const lat = normalized?.lat ?? Number(rec.lat) ?? 0;
   const lng = normalized?.lng ?? Number(rec.lng) ?? 0;
-  return `${rec.name}::${lat.toFixed(5)}::${lng.toFixed(5)}`;
+  return `ai::${lat.toFixed(5)}::${lng.toFixed(5)}`;
+};
+
+const containsJapanese = (value: string) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(value);
+
+const guessAiFavoriteLocale = (item: { name?: string; reason?: string; category?: string }): Locale => {
+  const sample = `${item.name || ''} ${item.reason || ''} ${item.category || ''}`;
+  return containsJapanese(sample) ? 'jp' : 'en';
+};
+
+const getAiFavoriteDisplay = (item: AiFavoriteItem, locale: Locale): AiFavoriteTranslation => {
+  const localized = item.translations?.[locale];
+  if (localized?.name) return localized;
+
+  const fallback = locale === 'jp' ? item.translations?.en : item.translations?.jp;
+  if (fallback?.name) return fallback;
+
+  return {
+    name: item.name,
+    reason: item.reason,
+    category: item.category,
+  };
+};
+
+const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
+  const merged = new Map<string, AiFavoriteItem>();
+
+  items.forEach((item) => {
+    const normalized = normalizeMapCoords(item?.lat, item?.lng);
+    if (!normalized || !item?.name) return;
+
+    const key = createAiFavoriteKey({ lat: normalized.lat, lng: normalized.lng });
+    const itemLocale = guessAiFavoriteLocale(item);
+    const entry = merged.get(key);
+
+    const translation: AiFavoriteTranslation = {
+      name: item.name,
+      reason: item?.reason || '',
+      category: item?.category || 'AI Recommendation',
+    };
+
+    if (!entry) {
+      merged.set(key, {
+        key,
+        name: translation.name,
+        reason: translation.reason,
+        category: translation.category,
+        lat: normalized.lat,
+        lng: normalized.lng,
+        created_at: item?.created_at || new Date().toISOString(),
+        translations: {
+          ...(item?.translations || {}),
+          [itemLocale]: translation,
+        },
+      });
+      return;
+    }
+
+    const mergedTranslations = {
+      ...(entry.translations || {}),
+      ...(item?.translations || {}),
+      [itemLocale]: translation,
+    };
+
+    const newestCreatedAt = new Date(item?.created_at || 0).getTime() > new Date(entry.created_at || 0).getTime()
+      ? item?.created_at || entry.created_at
+      : entry.created_at;
+
+    merged.set(key, {
+      ...entry,
+      created_at: newestCreatedAt,
+      translations: mergedTranslations,
+      name: entry.name || translation.name,
+      reason: entry.reason || translation.reason,
+      category: entry.category || translation.category,
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) => {
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 };
 
 const uiCopy: Record<Locale, Record<string, string>> = {
@@ -559,27 +645,6 @@ const getCustomIcon = (category: string, mapStyle: string) => {
   return icon;
 };
 
-const getAiLeafletIcon = (kind: 'temporary' | 'saved') => {
-  const cacheKey = `ai-${kind}`;
-  if (iconCache[cacheKey]) return iconCache[cacheKey];
-
-  const isTemporary = kind === 'temporary';
-  const html = isTemporary
-    ? `<div style="position:relative; width:44px; height:44px; display:flex; align-items:center; justify-content:center;"><div style="position:absolute; inset:4px; border-radius:14px; background:rgba(0,0,0,0.08); border:1px dashed rgba(0,0,0,0.18);"></div><div style="position:relative; width:36px; height:36px; border-radius:14px; display:flex; align-items:center; justify-content:center; background:#ffffff; border:3px solid #111111; box-shadow:0 10px 22px rgba(0,0,0,0.18); color:#111111; font-weight:900; font-size:11px; letter-spacing:0.08em;">AI</div></div>`
-    : `<div style="position:relative; width:40px; height:40px; display:flex; align-items:center; justify-content:center;"><div style="position:relative; width:34px; height:34px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:#111111; border:3px solid #ffffff; box-shadow:0 10px 22px rgba(0,0,0,0.24); color:#ffffff; font-weight:900; font-size:12px;">★</div></div>`;
-
-  const icon = L.divIcon({
-    html,
-    className: 'custom-div-icon',
-    iconSize: isTemporary ? [44, 44] : [40, 40],
-    iconAnchor: isTemporary ? [22, 38] : [20, 34],
-    popupAnchor: [0, -20],
-  });
-
-  iconCache[cacheKey] = icon;
-  return icon;
-};
-
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState<UserRole | null>(null);
@@ -610,20 +675,14 @@ export default function App() {
   const [listFilter, setListFilter] = useState<'all' | 'favorites' | 'ai_favorites'>('all');
   const [isFetching, setIsFetching] = useState(false);
   const [mapStyle, setMapStyle] = useState<MapThemeKey>(() => {
-    const saved = localStorage.getItem('milz_map_style');
+    if (typeof window === 'undefined') return 'original';
+    const saved = window.localStorage.getItem('milz_map_style');
     if (saved && saved in MAP_THEMES) {
       return saved as MapThemeKey;
     }
     return 'original';
   });
-
-  const [tokyoAnglePreset, setTokyoAnglePreset] = useState<TokyoAnglePreset>(() => {
-    const saved = localStorage.getItem('milz_tokyo_angle_preset');
-    if (saved && saved in TOKYO_ANGLE_PRESETS) {
-      return saved as TokyoAnglePreset;
-    }
-    return 'soft';
-  });
+  const [showMapStyleMenu, setShowMapStyleMenu] = useState(false);
 
   const newPlacePosition = useMemo(() => newPlacePos ? [newPlacePos.lat, newPlacePos.lng] as L.LatLngExpression : null, [newPlacePos]);
   
@@ -647,24 +706,25 @@ export default function App() {
   }, [mapStyle, newPlacePos]);
 
   useEffect(() => {
-    localStorage.setItem('milz_map_style', mapStyle);
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('milz_map_style', mapStyle);
   }, [mapStyle]);
 
   useEffect(() => {
-    localStorage.setItem('milz_tokyo_angle_preset', tokyoAnglePreset);
-  }, [tokyoAnglePreset]);
+    setShowMapStyleMenu(false);
+  }, [activeTab]);
 
   const activeMapTheme = MAP_THEMES[mapStyle];
-  const activeIllustrationTheme = mapStyle === 'tokyo' ? TOKYO_ILLUSTRATION_THEME : null;
+  const activeIllustrationTheme = isIllustrationTheme(mapStyle) ? MAP_THEMES[mapStyle] as typeof TOKYO_ILLUSTRATION_THEME : null;
 
   useEffect(() => {
     if (!mapRef.current || !activeIllustrationTheme) return;
-    const preset = TOKYO_ANGLE_PRESETS[tokyoAnglePreset];
+    const preset = { zoom: 15.05 };
     mapRef.current.flyTo(activeIllustrationTheme.center, preset.zoom, {
       animate: true,
       duration: 1.2,
     });
-  }, [activeIllustrationTheme, tokyoAnglePreset]);
+  }, [activeIllustrationTheme, mapStyle]);
   
   const [locationFilter, setLocationFilter] = useState({
     countryCode: 'JP',
@@ -736,7 +796,6 @@ export default function App() {
   }, [addLog]);
   const [tempAiPin, setTempAiPin] = useState<TempAiPin | null>(null);
   const [pendingMapFocus, setPendingMapFocus] = useState<{ lat: number; lng: number } | null>(null);
-  const [activeShortId, setActiveShortId] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'signin'>('signin');
   const [selectedAuthRole, setSelectedAuthRole] = useState<UserRole>('admin');
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
@@ -746,15 +805,25 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [landingAuthOpen, setLandingAuthOpen] = useState(false);
 
+  useEffect(() => {
+    if (activeTab !== 'map') {
+      setTempAiPin(null);
+    }
+  }, [activeTab]);
+
   const [uploading, setUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<MapNavigator | null>(null);
-  const shortsViewportRef = useRef<HTMLDivElement | null>(null);
-  const shortsItemRefs = useRef<Record<string, HTMLElement | null>>({});
   const t = (key: string) => uiCopy[locale][key] ?? key;
+  const mapStyleOptions: { key: MapThemeKey; label: string }[] = [
+    { key: 'original', label: 'Original' },
+    { key: 'style2', label: 'Style2' },
+    { key: 'style3', label: 'Style3' },
+    { key: 'style4', label: 'Style4' },
+  ];
 
   const isPlaceholder = (val: string) => {
     if (!val) return false;
@@ -1230,23 +1299,10 @@ export default function App() {
         return;
       }
 
-      const normalizedItems = parsed
-        .map((item: any) => {
-          const normalized = normalizeMapCoords(item?.lat, item?.lng);
-          if (!normalized || !item?.name) return null;
-          return {
-            key: item?.key || createAiFavoriteKey({ name: item.name, lat: normalized.lat, lng: normalized.lng }),
-            name: item.name,
-            reason: item?.reason || '',
-            category: item?.category || 'AI Recommendation',
-            lat: normalized.lat,
-            lng: normalized.lng,
-            created_at: item?.created_at || new Date().toISOString(),
-          } satisfies AiFavoriteItem;
-        })
-        .filter(Boolean) as AiFavoriteItem[];
+      const normalizedItems = mergeAiFavoriteItems(parsed);
 
       setAiFavorites(normalizedItems);
+      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(normalizedItems));
     } catch (error) {
       console.error('Failed to load AI favorites:', error);
       setAiFavorites([]);
@@ -1830,7 +1886,7 @@ export default function App() {
     const exists = aiFavorites.some((item) => item.key === key);
     const next = exists
       ? aiFavorites.filter((item) => item.key !== key)
-      : [
+      : mergeAiFavoriteItems([
           {
             key,
             name: normalizedRec.name,
@@ -1839,21 +1895,18 @@ export default function App() {
             lat: normalizedRec.lat,
             lng: normalizedRec.lng,
             created_at: new Date().toISOString(),
+            translations: {
+              [locale]: {
+                name: normalizedRec.name,
+                reason: normalizedRec.reason,
+                category: normalizedRec.category,
+              },
+            },
           },
           ...aiFavorites,
-        ];
+        ]);
 
     setAiFavorites(next);
-
-    if (!exists) {
-      setTempAiPin((current) => {
-        const isSamePin = current
-          && current.name === normalizedRec.name
-          && Math.abs(current.lat - normalizedRec.lat) < 0.00001
-          && Math.abs(current.lng - normalizedRec.lng) < 0.00001;
-        return isSamePin ? null : current;
-      });
-    }
 
     if (typeof window !== 'undefined' && user?.id) {
       window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
@@ -1867,35 +1920,35 @@ export default function App() {
     );
   };
 
-  const handleViewOnMap = (rec: { name: string; lat: number; lng: number; category?: string; reason?: string }) => {
+  const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
+    setPendingMapFocus(coords);
+    setSelectedPlaceForDetail(null);
+    setActiveTab('map');
+  };
+
+  const handleAiViewOnMap = (rec: { name: string; lat: number; lng: number }) => {
     const normalized = normalizeMapCoords(rec.lat, rec.lng);
     if (!normalized) {
       showToast(locale === 'jp' ? '地図へ移動できる座標が見つかりませんでした。' : 'No valid coordinates were found for this recommendation.', 'error');
       return;
     }
 
-    const normalizedRec = {
-      ...rec,
-      lat: normalized.lat,
-      lng: normalized.lng,
-    };
-    const key = createAiFavoriteKey(normalizedRec as { name: string; lat: number; lng: number });
-    const isSavedAi = aiFavorites.some((item) => item.key === key);
     const target = { lat: normalized.lat, lng: normalized.lng };
+    const aiKey = createAiFavoriteKey(target);
+    const isSaved = aiFavorites.some((item) => item.key === aiKey);
+    setTempAiPin(isSaved ? null : { ...target, name: rec.name });
+    focusMapOnCoords(target);
+  };
 
-    setTempAiPin(
-      isSavedAi
-        ? null
-        : {
-            ...target,
-            name: rec.name,
-            category: rec.category,
-            reason: rec.reason,
-          }
-    );
-    setPendingMapFocus(target);
-    setSelectedPlaceForDetail(null);
-    setActiveTab('map');
+  const handlePlaceViewOnMap = (rec: { lat: number; lng: number }) => {
+    const normalized = normalizeMapCoords(rec.lat, rec.lng);
+    if (!normalized) {
+      showToast(locale === 'jp' ? '地図へ移動できる座標が見つかりませんでした。' : 'No valid coordinates were found for this spot.', 'error');
+      return;
+    }
+
+    setTempAiPin(null);
+    focusMapOnCoords({ lat: normalized.lat, lng: normalized.lng });
   };
   const handleSearchLocation = async () => {
     // If we have a specific city selected, we can use its lat/lng directly from the library!
@@ -2087,15 +2140,22 @@ export default function App() {
 
   const aiFavoritePlaces = useMemo(() => {
     return aiFavorites.filter((item) => {
-      const matchesSearch =
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.reason.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchQuery.toLowerCase());
+      const localized = getAiFavoriteDisplay(item, locale);
+      const alternate = getAiFavoriteDisplay(item, locale === 'jp' ? 'en' : 'jp');
+      const haystack = [
+        localized.name,
+        localized.reason,
+        localized.category,
+        alternate.name,
+        alternate.reason,
+        alternate.category,
+      ].join(' ').toLowerCase();
+      const matchesSearch = haystack.includes(searchQuery.toLowerCase());
 
-      const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
+      const matchesCategory = selectedCategory === 'all' || localized.category === selectedCategory || alternate.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
-  }, [aiFavorites, searchQuery, selectedCategory]);
+  }, [aiFavorites, searchQuery, selectedCategory, locale]);
 
   const shortsFeed = useMemo<ShortFeedItem[]>(() => {
     const items: ShortFeedItem[] = [];
@@ -2125,64 +2185,6 @@ export default function App() {
     }
     return shuffled;
   }, [places]);
-
-
-  const savedAiMapPins = useMemo(() => aiFavorites.map((item) => ({
-    key: item.key,
-    name: item.name,
-    reason: item.reason,
-    category: item.category,
-    lat: item.lat,
-    lng: item.lng,
-  })), [aiFavorites]);
-
-  useEffect(() => {
-    if (activeTab !== 'map' && tempAiPin) {
-      setTempAiPin(null);
-    }
-  }, [activeTab, tempAiPin]);
-
-  useEffect(() => {
-    if (shortsFeed.length === 0) {
-      setActiveShortId(null);
-      return;
-    }
-    setActiveShortId((current) => {
-      if (current && shortsFeed.some((item) => item.id === current)) {
-        return current;
-      }
-      return shortsFeed[0].id;
-    });
-  }, [shortsFeed]);
-
-  useEffect(() => {
-    if (activeTab !== 'shorts') return;
-    const root = shortsViewportRef.current;
-    if (!root) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-
-        if (visible[0]) {
-          const nextId = visible[0].target.getAttribute('data-short-id');
-          if (nextId) setActiveShortId(nextId);
-        }
-      },
-      {
-        root,
-        threshold: [0.45, 0.6, 0.75],
-      }
-    );
-
-    Object.values(shortsItemRefs.current).forEach((node) => {
-      if (node instanceof HTMLElement) observer.observe(node);
-    });
-
-    return () => observer.disconnect();
-  }, [activeTab, shortsFeed]);
 
   if (isConfigMissing) {
     return (
@@ -2263,14 +2265,45 @@ export default function App() {
               )}
             </div>
             <div className="flex items-center gap-4">
-              <button 
-                onClick={() => fetchPlaces()}
-                className="p-2.5 hover:bg-stone-50 rounded-full transition-all active:scale-95"
-                title="Refresh Map"
-                disabled={isFetching}
-              >
-                <Loader2 className={cn("w-4 h-4 text-stone-400", isFetching && "animate-spin text-black")} />
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => setShowMapStyleMenu((prev) => !prev)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-stone-200 bg-stone-50 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600 hover:text-black hover:bg-white transition-all"
+                >
+                  <Layers3 className="w-4 h-4" />
+                  Map Style
+                </button>
+                <AnimatePresence>
+                  {showMapStyleMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      className="absolute right-0 top-full mt-3 w-56 rounded-2xl border border-stone-200 bg-white/95 backdrop-blur-xl shadow-2xl p-2"
+                    >
+                      {mapStyleOptions.map((option) => (
+                        <button
+                          key={option.key}
+                          onClick={() => {
+                            setMapStyle(option.key);
+                            setShowMapStyleMenu(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center justify-between rounded-xl px-4 py-3 text-left text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                            mapStyle === option.key ? "bg-black text-white" : "text-stone-500 hover:bg-stone-50 hover:text-black"
+                          )}
+                        >
+                          <span>{option.label}</span>
+                          {mapStyle === option.key && <CheckCircle2 className="w-4 h-4" />}
+                        </button>
+                      ))}
+                      <div className="mt-2 rounded-xl bg-stone-50 px-4 py-3 text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">
+                        Current selection is saved as default.
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
               <div className="flex items-center rounded-full border border-stone-200 bg-stone-50 p-1 shadow-sm">
                 <button
                   onClick={() => setLocale('jp')}
@@ -2367,25 +2400,6 @@ export default function App() {
                     }
                   </button>
                 </div>
-
-                {activeIllustrationTheme && (
-                  <div className="mx-auto inline-flex rounded-full border border-stone-200 bg-white/85 backdrop-blur-xl p-1 shadow-xl">
-                    {(Object.keys(TOKYO_ANGLE_PRESETS) as TokyoAnglePreset[]).map((presetKey) => (
-                      <button
-                        key={presetKey}
-                        onClick={() => setTokyoAnglePreset(presetKey)}
-                        className={cn(
-                          "min-w-[96px] rounded-full px-5 py-3 text-[10px] font-black uppercase tracking-[0.28em] transition-all",
-                          tokyoAnglePreset === presetKey
-                            ? "bg-black text-white shadow-lg"
-                            : "text-stone-500 hover:text-black"
-                        )}
-                      >
-                        {TOKYO_ANGLE_PRESETS[presetKey].label}
-                      </button>
-                    ))}
-                  </div>
-                )}
 
                 <AnimatePresence>
                   {isFiltering && (
@@ -2536,10 +2550,10 @@ export default function App() {
               {activeIllustrationTheme ? (
                 <TokyoMiniatureMap
                   apiKey={import.meta.env.VITE_MAPTILER_KEY}
-                  anglePreset={tokyoAnglePreset}
+                  styleVariant={mapStyle as any}
                   places={filteredPlaces}
                   tempAiPin={tempAiPin}
-                  savedAiPins={savedAiMapPins}
+                  aiFavoritePins={aiFavorites.map((item) => ({ key: item.key, lat: item.lat, lng: item.lng, name: getAiFavoriteDisplay(item, locale).name }))}
                   newPlacePos={newPlacePos}
                   role={role}
                   activeTab={activeTab}
@@ -2635,17 +2649,23 @@ export default function App() {
                     </Marker>
                   ))}
 
-                  {savedAiMapPins.map((item) => (
+
+
+                  {aiFavorites.map((item) => (
                     <Marker
-                      key={`saved-ai-${item.key}`}
+                      key={item.key}
                       position={[item.lat, item.lng]}
-                      icon={getAiLeafletIcon('saved')}
+                      icon={L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="background-color: white; width: 32px; height: 32px; border-radius: 999px; display: flex; align-items: center; justify-content: center; border: 2px solid black; box-shadow: 0 6px 16px rgba(0,0,0,0.15);"><div style="color: black; font-size: 14px; font-weight: 700;">★</div></div>`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 32]
+                      })}
                     >
                       <Popup>
-                        <div className="p-2 space-y-1">
-                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest">AI Favorite</div>
-                          <div className="font-black text-black uppercase tracking-tight">{item.name}</div>
-                          {item.reason ? <p className="text-xs text-stone-500 leading-relaxed max-w-[220px]">{item.reason}</p> : null}
+                        <div className="p-2">
+                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">AI Favorite</div>
+                          <div className="font-black text-black uppercase tracking-tight">{getAiFavoriteDisplay(item, locale).name}</div>
                         </div>
                       </Popup>
                     </Marker>
@@ -2654,13 +2674,17 @@ export default function App() {
                   {tempAiPin && (
                     <Marker 
                       position={[tempAiPin.lat, tempAiPin.lng]}
-                      icon={getAiLeafletIcon('temporary')}
+                      icon={L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div style="background-color: black; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-center; border: 2px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transform: rotate(45deg);"><div style="transform: rotate(-45deg); color: white; font-size: 14px;">✨</div></div>`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 32]
+                      })}
                     >
                       <Popup>
-                        <div className="p-2 space-y-1">
-                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">Temporary AI Pin</div>
+                        <div className="p-2">
+                          <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1">AI Recommendation</div>
                           <div className="font-black text-black uppercase tracking-tight">{tempAiPin.name}</div>
-                          {tempAiPin.reason ? <p className="text-xs text-stone-500 leading-relaxed max-w-[220px]">{tempAiPin.reason}</p> : null}
                           <button 
                             onClick={() => setTempAiPin(null)}
                             className="mt-2 text-[9px] font-black text-rose-500 uppercase tracking-widest hover:underline"
@@ -2765,8 +2789,15 @@ export default function App() {
                       <div className="space-y-5">
                         <div className="flex items-start justify-between gap-4">
                           <div className="space-y-2 min-w-0">
-                            <p className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{item.category}</p>
-                            <h3 className="text-lg font-black text-black leading-tight">{item.name}</h3>
+                            {(() => {
+                              const localized = getAiFavoriteDisplay(item, locale);
+                              return (
+                                <>
+                                  <p className="text-[9px] font-black text-stone-400 uppercase tracking-[0.2em]">{localized.category}</p>
+                                  <h3 className="text-lg font-black text-black leading-tight">{localized.name}</h3>
+                                </>
+                              );
+                            })()}
                           </div>
                           <button
                             onClick={() => handleSaveAiRecommendation(item)}
@@ -2777,7 +2808,7 @@ export default function App() {
                           </button>
                         </div>
 
-                        <p className="text-sm text-stone-500 leading-relaxed font-medium line-clamp-4">{item.reason}</p>
+                        <p className="text-sm text-stone-500 leading-relaxed font-medium line-clamp-4">{getAiFavoriteDisplay(item, locale).reason}</p>
 
                         <div className="flex items-center justify-between pt-2">
                           <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">{t('savedAt')} {new Date(item.created_at).toLocaleDateString()}</span>
@@ -2785,7 +2816,7 @@ export default function App() {
 
                         <div className="flex items-center gap-3 pt-1">
                           <button
-                            onClick={() => handleViewOnMap(item)}
+                            onClick={() => handleAiViewOnMap(item)}
                             className="flex-1 px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 hover:bg-stone-800 transition-all"
                           >
                             <MapPin className="w-3 h-3" />
@@ -3077,7 +3108,7 @@ export default function App() {
                                   
                                   <div className="flex gap-3 mt-auto">
                                     <button
-                                      onClick={() => handleViewOnMap(rec)}
+                                      onClick={() => handleAiViewOnMap(rec)}
                                       className="flex-1 py-4 bg-stone-50 hover:bg-black hover:text-white text-black rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all border border-stone-100"
                                     >
                                       <MapPin className="w-3 h-3" />
@@ -3087,13 +3118,13 @@ export default function App() {
                                       onClick={() => handleSaveAiRecommendation(rec)}
                                       className={cn(
                                         "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
-                                        aiFavorites.some((item) => item.key === createAiFavoriteKey(rec))
+                                        aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng }))
                                           ? "border-rose-200 bg-rose-50 text-rose-500"
                                           : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
                                       )}
                                       title={t('saveAi')}
                                     >
-                                      <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey(rec)) && "fill-current")} />
+                                      <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng })) && "fill-current")} />
                                     </button>
                                   </div>
                                 </motion.div>
@@ -3152,7 +3183,6 @@ export default function App() {
           {activeTab === 'shorts' && (
             <motion.div
               key="shorts"
-              ref={shortsViewportRef}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
@@ -3169,27 +3199,16 @@ export default function App() {
               ) : (
                 shortsFeed.map((item) => {
                   const isPlaceFav = favorites.some((f) => f.place_id === item.placeId);
-                  const isActiveShort = activeShortId === item.id;
-                  const videoId = extractYouTubeVideoId(item.url);
-                  const iframeSrc = `${item.embedUrl}&autoplay=${isActiveShort ? 1 : 0}&mute=1&playsinline=1&controls=1&loop=${isActiveShort && videoId ? 1 : 0}${videoId ? `&playlist=${videoId}` : ''}`;
                   return (
-                    <section
-                      key={item.id}
-                      data-short-id={item.id}
-                      ref={(node) => {
-                        shortsItemRefs.current[item.id] = node;
-                      }}
-                      className="min-h-full snap-start flex items-center justify-center p-4 md:p-8"
-                    >
+                    <section key={item.id} className="min-h-full snap-start flex items-center justify-center p-4 md:p-8">
                       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[minmax(320px,460px)_1fr] gap-6 items-center">
                         <div className="relative mx-auto w-full max-w-[420px] aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
                           <iframe
-                            src={iframeSrc}
+                            src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
                             title={`${item.placeName} short`}
                             className="w-full h-full"
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                             referrerPolicy="strict-origin-when-cross-origin"
-                            loading={isActiveShort ? 'eager' : 'lazy'}
                             allowFullScreen
                           />
                           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black via-black/70 to-transparent" />
@@ -3223,7 +3242,7 @@ export default function App() {
                               {isPlaceFav ? 'Saved Spot' : 'Save Spot'}
                             </button>
                             <button
-                              onClick={() => handleViewOnMap({ name: item.placeName, lat: item.lat, lng: item.lng })}
+                              onClick={() => handlePlaceViewOnMap({ lat: item.lat, lng: item.lng })}
                               className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] hover:border-white/40 hover:bg-white/5 transition-all"
                             >
                               <MapPinned className="w-4 h-4" />
@@ -3307,64 +3326,42 @@ export default function App() {
                 <div className="space-y-4 text-left">
                   <div className="flex items-center gap-2 px-1">
                     <MapIcon className="w-4 h-4 text-stone-400" />
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Theme Settings</span>
+                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Style Settings</span>
                   </div>
                   <div className="space-y-4">
-                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Original + Tokyo Hybrid View</div>
+                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Choose default map style</div>
                     <div className="grid grid-cols-2 gap-4">
-                      {(Object.keys(MAP_THEMES) as MapThemeKey[]).map((styleKey) => (
+                      {mapStyleOptions.map((option) => (
                         <button
-                          key={styleKey}
-                          onClick={() => setMapStyle(styleKey)}
+                          key={option.key}
+                          onClick={() => setMapStyle(option.key)}
                           className={cn(
                             "p-6 border rounded-xl transition-all text-left space-y-2",
-                            mapStyle === styleKey 
-                              ? "border-black bg-black text-white shadow-xl" 
+                            mapStyle === option.key
+                              ? "border-black bg-black text-white shadow-xl"
                               : "border-stone-200 bg-white text-black hover:border-black"
                           )}
                         >
                           <div className="flex items-center justify-between gap-3">
-                            <div className="font-black text-xs uppercase tracking-widest">{MAP_THEMES[styleKey].name}</div>
-                            {isIllustrationTheme(styleKey) && (
-                              <span className={cn(
-                                "px-2.5 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.25em]",
-                                mapStyle === styleKey ? "bg-white/15 text-white" : "bg-stone-100 text-stone-500"
-                              )}>
-                                tokyo
-                              </span>
-                            )}
+                            <div className="font-black text-xs uppercase tracking-widest">{option.label}</div>
+                            {mapStyle === option.key && <CheckCircle2 className="w-4 h-4" />}
                           </div>
                           <div className={cn(
                             "text-[9px] font-medium leading-tight uppercase tracking-tighter",
-                            mapStyle === styleKey ? "text-stone-300" : "text-stone-400"
+                            mapStyle === option.key ? "text-stone-300" : "text-stone-400"
                           )}>
-                            {MAP_THEMES[styleKey].description}
+                            {option.key === 'original'
+                              ? 'Classic top-down map'
+                              : option.key === 'style2'
+                                ? 'Current TOP visual style in top view'
+                                : option.key === 'style3'
+                                  ? 'Current Soft Tilt visual style in top view'
+                                  : 'Current Miniature visual style in top view'}
                           </div>
                         </button>
                       ))}
                     </div>
-                    {mapStyle === 'tokyo' && (
-                      <div className="space-y-3">
-                        <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Tokyo Camera Preset</div>
-                        <div className="inline-flex rounded-full border border-stone-200 bg-stone-50 p-1">
-                          {(Object.keys(TOKYO_ANGLE_PRESETS) as TokyoAnglePreset[]).map((presetKey) => (
-                            <button
-                              key={presetKey}
-                              onClick={() => setTokyoAnglePreset(presetKey)}
-                              className={cn(
-                                "min-w-[92px] rounded-full px-4 py-3 text-[10px] font-black uppercase tracking-[0.22em] transition-all",
-                                tokyoAnglePreset === presetKey
-                                  ? "bg-black text-white shadow-lg"
-                                  : "text-stone-500 hover:text-black"
-                              )}
-                            >
-                              {TOKYO_ANGLE_PRESETS[presetKey].label}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[10px] text-stone-400 leading-relaxed">Stable MapTiler preview using built-in style and camera presets. 実際の3Dミニチュア確認用です。</p>
-                      </div>
-                    )}
+                    <p className="text-[10px] text-stone-400 leading-relaxed">Changing the style here also saves it as the default map style.</p>
                   </div>
                 </div>
 
@@ -3650,7 +3647,7 @@ export default function App() {
 
       {/* Add Spot Modal */}
       <AnimatePresence>
-        {(isAdding && (!!newPlacePos || !!editingPlace)) && (
+        {isAdding && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -3678,7 +3675,7 @@ export default function App() {
                     <div className="w-16 h-16 bg-stone-50 flex items-center justify-center mx-auto">
                       <MapPinned className="w-8 h-8 text-stone-300" />
                     </div>
-                    <p className="text-stone-500 font-medium text-sm">Tap anywhere on the map to set the location.</p>
+                    <p className="text-stone-500 font-medium text-sm">Tap anywhere on the map, or search by address below.</p>
                   </div>
 
                   <div className="relative flex items-center">
@@ -4522,11 +4519,7 @@ export default function App() {
                             </button>
                             <button 
                               onClick={() => {
-                                const lat = selectedPlaceForDetail.lat;
-                                const lng = selectedPlaceForDetail.lng;
-                                setSelectedPlaceForDetail(null);
-                                setActiveTab('map');
-                                setTimeout(() => mapRef.current?.flyTo([lat, lng], 16), 100);
+                                handlePlaceViewOnMap({ lat: selectedPlaceForDetail.lat, lng: selectedPlaceForDetail.lng });
                               }}
                               className="w-full py-5 bg-white border border-black text-black text-[10px] font-black uppercase tracking-[0.3em] hover:bg-stone-50 transition-colors flex items-center justify-center gap-2 rounded-xl"
                             >
