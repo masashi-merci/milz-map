@@ -301,15 +301,20 @@ interface Favorite {
   created_at: string;
 }
 
+interface AIRecommendationItem {
+  name: string;
+  reason: string;
+  details?: string;
+  category: string;
+  lat: number;
+  lng: number;
+  image_url?: string;
+  image_source?: 'milz' | 'wikipedia' | 'fallback';
+  matched_place_id?: string;
+}
+
 interface AIResults {
-  recommendations?: {
-    name: string;
-    reason: string;
-    details?: string;
-    category: string;
-    lat: number;
-    lng: number;
-  }[];
+  recommendations?: AIRecommendationItem[];
 }
 
 
@@ -338,6 +343,9 @@ interface AiFavoriteItem {
   details?: string;
   area_key?: string;
   city_name?: string;
+  image_url?: string;
+  image_source?: 'milz' | 'wikipedia' | 'fallback';
+  matched_place_id?: string;
 }
 
 
@@ -671,6 +679,9 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
         details: translation.details || item?.details || item?.reason || '',
         area_key: item?.area_key || undefined,
         city_name: item?.city_name || undefined,
+        image_url: item?.image_url || undefined,
+        image_source: item?.image_source || undefined,
+        matched_place_id: item?.matched_place_id || undefined,
       });
       return;
     }
@@ -695,12 +706,46 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       details: entry.details || translation.details || entry.reason,
       area_key: entry.area_key || item?.area_key || undefined,
       city_name: entry.city_name || item?.city_name || undefined,
+      image_url: entry.image_url || item?.image_url || undefined,
+      image_source: entry.image_source || item?.image_source || undefined,
+      matched_place_id: entry.matched_place_id || item?.matched_place_id || undefined,
     });
   });
 
   return Array.from(merged.values()).sort((a, b) => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
+};
+
+const normalizeLookupValue = (value?: string | null) => (value || '')
+  .normalize('NFKC')
+  .toLowerCase()
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^\p{L}\p{N}]+/gu, ' ')
+  .trim();
+
+const buildAiFallbackImage = (name: string, category: string, areaLabel?: string) => {
+  const safeName = name || 'MILZ';
+  const safeCategory = category || 'AI Recommendation';
+  const safeArea = areaLabel || 'MILZ';
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#111111" />
+          <stop offset="100%" stop-color="#2f2f2f" />
+        </linearGradient>
+      </defs>
+      <rect width="1200" height="800" rx="48" fill="url(#bg)" />
+      <circle cx="980" cy="160" r="120" fill="#ffffff" fill-opacity="0.06" />
+      <circle cx="150" cy="640" r="180" fill="#ffffff" fill-opacity="0.05" />
+      <text x="80" y="118" fill="#d6d3d1" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" letter-spacing="8">MILZ AI</text>
+      <text x="80" y="410" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800">${safeName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
+      <text x="82" y="470" fill="#e7e5e4" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="600" letter-spacing="4">${safeCategory.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
+      <text x="82" y="540" fill="#a8a29e" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="500">${safeArea.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };
 
 const findAreaOption = (areaKey?: string | null) => AREA_OPTIONS.find((item) => item.key === areaKey) || AREA_OPTIONS[0];
@@ -984,10 +1029,11 @@ export default function App() {
   const [placeEditorAreaKey, setPlaceEditorAreaKey] = useState<string>('tokyo');
   const [placeEditorCityName, setPlaceEditorCityName] = useState<string>('Shibuya');
   const [placeEditorBadges, setPlaceEditorBadges] = useState<string[]>([]);
-  const [selectedAiRecommendation, setSelectedAiRecommendation] = useState<AIResults['recommendations'] extends (infer T)[] ? T | null : any>(null);
+  const [selectedAiRecommendation, setSelectedAiRecommendation] = useState<AIRecommendationItem | null>(null);
   const [aiLeaderboard, setAiLeaderboard] = useState<AiRecommendationMetric[]>([]);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const [selectedPlaceForDetail, setSelectedPlaceForDetail] = useState<Place | null>(null);
+  const aiImageCacheRef = useRef<Record<string, { url: string; source: 'milz' | 'wikipedia' | 'fallback'; matched_place_id?: string }>>({});
 
   const openPlaceDetail = React.useCallback((target: Place | string | null | undefined) => {
     if (!target) {
@@ -1073,6 +1119,7 @@ export default function App() {
   const [locationFilter, setLocationFilter] = useState(() => createLocationFilterFromArea('tokyo', 'Shibuya'));
   const areaOptions = AREA_OPTIONS;
   const areaCityOptions = useMemo(() => getAreaCityOptions(locationFilter.areaKey), [locationFilter.areaKey]);
+  const currentAreaLabel = findAreaOption(locationFilter.areaKey)?.label || locationFilter.areaName;
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
@@ -2434,6 +2481,126 @@ export default function App() {
   };
 
 
+  const fetchWikipediaThumbnail = React.useCallback(async (rec: AIRecommendationItem, areaKey?: string, cityName?: string) => {
+    const areaLabel = findAreaOption(areaKey || locationFilter.areaKey)?.label || currentAreaLabel || '';
+    const queries = Array.from(new Set([
+      [rec.name, cityName, areaLabel].filter(Boolean).join(' '),
+      [rec.name, cityName].filter(Boolean).join(' '),
+      [rec.name, areaLabel].filter(Boolean).join(' '),
+      rec.name,
+    ].map((value) => value.trim()).filter(Boolean)));
+
+    const languages = locale === 'jp' ? ['ja', 'en'] : ['en', 'ja'];
+
+    for (const lang of languages) {
+      for (const query of queries) {
+        try {
+          const searchResponse = await fetch(`https://${lang}.wikipedia.org/w/api.php?origin=*&action=query&list=search&format=json&utf8=1&srlimit=5&srsearch=${encodeURIComponent(query)}`);
+          if (!searchResponse.ok) continue;
+          const searchJson = await searchResponse.json();
+          const firstHit = searchJson?.query?.search?.[0];
+          if (!firstHit?.pageid) continue;
+
+          const pageResponse = await fetch(`https://${lang}.wikipedia.org/w/api.php?origin=*&action=query&format=json&prop=pageimages|info&pageids=${firstHit.pageid}&piprop=thumbnail&pithumbsize=1200&inprop=url`);
+          if (!pageResponse.ok) continue;
+          const pageJson = await pageResponse.json();
+          const page = pageJson?.query?.pages?.[String(firstHit.pageid)];
+          const thumbnail = page?.thumbnail?.source;
+          if (thumbnail) {
+            return { url: thumbnail as string, source: 'wikipedia' as const };
+          }
+        } catch (error) {
+          console.warn('Wikipedia thumbnail lookup failed:', error);
+        }
+      }
+    }
+
+    return null;
+  }, [currentAreaLabel, locale, locationFilter.areaKey]);
+
+  const resolveAiRecommendationImage = React.useCallback(async (rec: AIRecommendationItem, areaKey?: string, cityName?: string) => {
+    const normalized = normalizeMapCoords(rec.lat, rec.lng);
+    const cacheKey = [normalizeLookupValue(rec.name), areaKey || locationFilter.areaKey || '', cityName || locationFilter.cityName || '', normalized?.lat?.toFixed(4) || '', normalized?.lng?.toFixed(4) || ''].join('::');
+    const cached = aiImageCacheRef.current[cacheKey];
+    if (cached) return cached;
+
+    const normalizedName = normalizeLookupValue(rec.name);
+    const normalizedCity = normalizeLookupValue(cityName || locationFilter.cityName || '');
+    const targetAreaKey = areaKey || locationFilter.areaKey;
+
+    const sameAreaPlaces = places.filter((place) => {
+      const placeAreaKey = place.area_key || inferAreaKeyFromCoords(place.lat, place.lng);
+      return !targetAreaKey || placeAreaKey === targetAreaKey;
+    });
+
+    const scoredMatches = sameAreaPlaces
+      .filter((place) => Boolean(place.image_url || place.images?.[0]))
+      .map((place) => {
+        const placeName = normalizeLookupValue(place.name);
+        const placeCity = normalizeLookupValue(place.municipality || place.area_label || place.prefecture || '');
+        let score = 0;
+
+        if (placeName === normalizedName) score += 100;
+        else if (placeName.includes(normalizedName) || normalizedName.includes(placeName)) score += 55;
+
+        if (normalizedCity) {
+          if (placeCity === normalizedCity) score += 25;
+          else if (placeCity.includes(normalizedCity) || normalizedCity.includes(placeCity)) score += 12;
+        }
+
+        if (normalized) {
+          const distance = Math.sqrt(Math.pow(place.lat - normalized.lat, 2) + Math.pow(place.lng - normalized.lng, 2));
+          score += Math.max(0, 10 - distance * 100);
+        }
+
+        return {
+          place,
+          score,
+          url: place.image_url || place.images?.[0] || '',
+        };
+      })
+      .filter((item) => item.score >= 60 && item.url)
+      .sort((a, b) => b.score - a.score);
+
+    if (scoredMatches[0]) {
+      const resolved = {
+        url: scoredMatches[0].url,
+        source: 'milz' as const,
+        matched_place_id: scoredMatches[0].place.id,
+      };
+      aiImageCacheRef.current[cacheKey] = resolved;
+      return resolved;
+    }
+
+    const wikiImage = await fetchWikipediaThumbnail(rec, areaKey, cityName);
+    if (wikiImage?.url) {
+      aiImageCacheRef.current[cacheKey] = wikiImage;
+      return wikiImage;
+    }
+
+    const fallback = {
+      url: buildAiFallbackImage(rec.name, rec.category, findAreaOption(areaKey || locationFilter.areaKey)?.label || currentAreaLabel),
+      source: 'fallback' as const,
+    };
+    aiImageCacheRef.current[cacheKey] = fallback;
+    return fallback;
+  }, [currentAreaLabel, fetchWikipediaThumbnail, locationFilter.areaKey, locationFilter.cityName, places]);
+
+  const enrichAiRecommendations = React.useCallback(async (items: AIRecommendationItem[] = [], areaKey?: string, cityName?: string) => {
+    const enriched = await Promise.all(items.map(async (item) => {
+      if (item.image_url) return item;
+      const image = await resolveAiRecommendationImage(item, areaKey, cityName);
+      return {
+        ...item,
+        image_url: image?.url || item.image_url,
+        image_source: image?.source || item.image_source,
+        matched_place_id: image?.matched_place_id || item.matched_place_id,
+      };
+    }));
+
+    return enriched;
+  }, [resolveAiRecommendationImage]);
+
   const fetchAiLeaderboard = React.useCallback(async (areaKey?: string, cityName?: string, fallbackItems?: AIResults['recommendations']) => {
     const targetAreaKey = areaKey || locationFilter.areaKey;
     const targetCityName = cityName || locationFilter.cityName;
@@ -2605,7 +2772,7 @@ export default function App() {
     return true;
   }, [user]);
 
-  const handleSaveAiRecommendation = async (rec: { name: string; reason: string; details?: string; category: string; lat: number; lng: number }) => {
+  const handleSaveAiRecommendation = async (rec: { name: string; reason: string; details?: string; category: string; lat: number; lng: number; image_url?: string; image_source?: 'milz' | 'wikipedia' | 'fallback'; matched_place_id?: string }) => {
     if (!user) {
       showToast(locale === 'jp' ? 'ログインが必要です。' : 'Please sign in first.', 'error');
       return;
@@ -2642,6 +2809,9 @@ export default function App() {
                 category: normalizedRec.category,
               },
             },
+            image_url: normalizedRec.image_url,
+            image_source: normalizedRec.image_source,
+            matched_place_id: normalizedRec.matched_place_id,
           },
           ...aiFavorites,
         ]);
@@ -2743,11 +2913,34 @@ export default function App() {
 
           if (diffHours < cacheLimit) {
             console.log(`Using cached ${type} for ${locationStr} (${locale})`);
-            setAiResults(cacheData.data);
+            const cachedRecommendations = await enrichAiRecommendations(cacheData.data?.recommendations || [], areaKey || locationFilter.areaKey, cityName || locationFilter.cityName);
+            const hydratedCacheData = {
+              ...cacheData.data,
+              recommendations: cachedRecommendations,
+            };
+            setAiResults(hydratedCacheData);
             setAiResultsLocale(locale);
             setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
-            fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cacheData.data?.recommendations || []);
+            fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cachedRecommendations);
             setAiLoading(false);
+
+            if ((cacheData.data?.recommendations || []).some((item: AIRecommendationItem) => !item.image_url) && client) {
+              void (async () => {
+                const { error: cacheUpdateError } = await client
+                  .from('ai_cache')
+                  .upsert({
+                    type,
+                    location_key: locationCacheKey,
+                    category,
+                    data: hydratedCacheData,
+                    updated_at: cacheData.updated_at || new Date().toISOString(),
+                  }, { onConflict: 'type,location_key,category' });
+
+                if (cacheUpdateError) {
+                  console.error('Failed to refresh cached AI images:', cacheUpdateError);
+                }
+              })();
+            }
             return;
           }
         }
@@ -2799,11 +2992,17 @@ export default function App() {
         }
       });
 
-      const results = JSON.parse(response.text);
+      const parsedResults = JSON.parse(response.text) as AIResults;
+      const enrichedRecommendations = await enrichAiRecommendations(parsedResults.recommendations || [], areaKey || locationFilter.areaKey, cityName || locationFilter.cityName);
+      const results: AIResults = {
+        ...parsedResults,
+        recommendations: enrichedRecommendations,
+      };
+
       setAiResults(results);
       setAiResultsLocale(locale);
       setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
-      fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, results.recommendations || []);
+      fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, enrichedRecommendations);
 
       // 3. 結果をキャッシュに保存（upsert）
       if (client) {
@@ -3492,6 +3691,11 @@ export default function App() {
                       className="bg-white p-5 md:p-6 border border-stone-100 rounded-[1.75rem] group shadow-sm hover:shadow-xl transition-all duration-500"
                     >
                       <div className="space-y-5">
+                        {item.image_url && (
+                          <div className="aspect-[4/3] overflow-hidden rounded-[1.5rem] border border-stone-100 bg-stone-100">
+                            <img src={item.image_url} alt={getAiFavoriteDisplay(item, locale).name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
+                          </div>
+                        )}
                         <div className="flex items-start justify-between gap-4">
                           <div className="space-y-2 min-w-0">
                             {(() => {
@@ -3731,9 +3935,17 @@ export default function App() {
                                   initial={{ opacity: 0, y: 20 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: i * 0.05 }}
-                                  className="bg-white p-6 md:p-8 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group"
+                                  className="bg-white p-4 md:p-6 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group overflow-hidden"
                                 >
-                                  <div className="flex items-start justify-between mb-6 gap-4">
+                                  <div className="aspect-[16/10] -m-1 mb-5 overflow-hidden rounded-[1.5rem] bg-stone-100 border border-stone-100">
+                                    <img
+                                      src={rec.image_url || buildAiFallbackImage(rec.name, rec.category, currentAreaLabel)}
+                                      alt={rec.name}
+                                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  </div>
+                                  <div className="flex items-start justify-between mb-5 gap-4">
                                     <div>
                                       <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">#{String(i + 1).padStart(2, '0')}</div>
                                       <h4 className="mt-2 text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
@@ -3742,7 +3954,7 @@ export default function App() {
                                       {rec.category}
                                     </span>
                                   </div>
-                                  <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-5">{rec.reason}</p>
+                                  <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-5 line-clamp-3">{rec.reason}</p>
                                   <button
                                     onClick={() => {
                                       setSelectedAiRecommendation(rec);
@@ -6001,6 +6213,16 @@ CREATE POLICY "Users can delete own favorites" ON favorites FOR DELETE USING (au
                   <X className="w-5 h-5" />
                 </button>
               </div>
+              {selectedAiRecommendation.image_url && (
+                <div className="overflow-hidden rounded-[1.75rem] border border-stone-100 bg-stone-100">
+                  <img
+                    src={selectedAiRecommendation.image_url}
+                    alt={selectedAiRecommendation.name}
+                    className="w-full aspect-[16/9] object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
               <div className="space-y-4">
                 <p className="text-base md:text-lg font-semibold text-stone-700 leading-relaxed">{selectedAiRecommendation.reason}</p>
                 <div className="rounded-[1.5rem] border border-stone-100 bg-stone-50 p-5 md:p-6 text-sm md:text-[15px] leading-relaxed text-stone-600 whitespace-pre-line">
