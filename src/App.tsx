@@ -156,6 +156,21 @@ function parseUrlList(raw?: string | null): string[] {
     .filter(Boolean);
 }
 
+function normalizeYouTubeUrlList(raw?: string | null): string[] {
+  return parseUrlList(raw)
+    .map((value) => {
+      const videoId = extractYouTubeVideoId(value);
+      return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+    })
+    .filter((value): value is string => !!value);
+}
+
+function isLikelyImageUrl(url?: string | null): boolean {
+  const value = (url || '').trim().toLowerCase();
+  if (!value) return false;
+  return /\.(jpg|jpeg|png|webp|gif|svg|avif)(\?|$)/i.test(value) || value.startsWith('data:image/') || value.includes('/images/') || value.includes('imagekit') || value.includes('imgix') || value.includes('cloudinary');
+}
+
 function extractYouTubeVideoId(value?: string | null): string | null {
   const raw = (value || '').trim();
   if (!raw) return null;
@@ -203,27 +218,27 @@ function getYouTubeEmbedUrl(value?: string | null): string | null {
 function VideoEmbed({ url, title }: { url: string; title: string }) {
   const youtubeEmbedUrl = getYouTubeEmbedUrl(url);
 
-  if (youtubeEmbedUrl) {
+  if (!youtubeEmbedUrl) {
     return (
-      <iframe
-        src={youtubeEmbedUrl}
-        title={title}
-        className="w-full h-full"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        referrerPolicy="strict-origin-when-cross-origin"
-        allowFullScreen
-      />
+      <div className="w-full h-full bg-stone-950 text-white flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <Play className="w-10 h-10 text-white/80" />
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/60">MILZ VIDEO</p>
+          <p className="text-sm font-semibold text-white/90">YouTube URL only</p>
+          <p className="text-xs text-white/60">Please register a YouTube Shorts or YouTube video link.</p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <video
-      src={url}
-      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-      controls
-      muted
-      loop
-      playsInline
+    <iframe
+      src={youtubeEmbedUrl}
+      title={title}
+      className="w-full h-full"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerPolicy="strict-origin-when-cross-origin"
+      allowFullScreen
     />
   );
 }
@@ -231,7 +246,7 @@ function VideoEmbed({ url, title }: { url: string; title: string }) {
 function inferMediaTypeFromUrl(url?: string | null): 'image' | 'video' {
   const value = (url || '').toLowerCase();
   if (!value) return 'image';
-  if (extractYouTubeVideoId(value) || /\.(mp4|mov|webm|m4v)(\?|$)/i.test(value)) {
+  if (extractYouTubeVideoId(value)) {
     return 'video';
   }
   return 'image';
@@ -1362,7 +1377,7 @@ export default function App() {
         detailedDescriptionPlaceholder: '補足情報や背景など...',
         galleryPhotos: 'ギャラリー写真（URLをカンマ区切り）',
         galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
-        videos: 'ショート動画 / 動画URL（1行ずつ）',
+        videos: 'YouTube動画URL（1行ずつ）',
         videosPlaceholder: 'https://youtube.com/shorts/...',
         pdfs: 'PDF資料（name|url をカンマ区切り）',
         pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
@@ -1401,7 +1416,7 @@ export default function App() {
         detailedDescriptionPlaceholder: 'Additional background info...',
         galleryPhotos: 'Gallery Photos (Comma separated URLs)',
         galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
-        videos: 'Shorts / Video URLs (one per line)',
+        videos: 'YouTube video URLs (one per line)',
         videosPlaceholder: 'https://youtube.com/shorts/...',
         pdfs: 'PDF Files (name|url, comma separated)',
         pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
@@ -2284,9 +2299,23 @@ export default function App() {
     }
 
     try {
+      const sanitizedDetailForm = {
+        ...editDetailForm,
+        videos: (editDetailForm.videos || []).filter((video) => !!extractYouTubeVideoId(video)),
+        from_spot_items: (editDetailForm.from_spot_items || []).map((item) => {
+          const mediaType = inferMediaTypeFromUrl(item.media_url);
+          const hasValidYouTube = mediaType === 'video' && !!extractYouTubeVideoId(item.media_url);
+          const hasValidImage = mediaType === 'image' && (!!item.media_url && isLikelyImageUrl(item.media_url));
+          return {
+            ...item,
+            media_type: mediaType,
+            media_url: hasValidYouTube || hasValidImage ? item.media_url : '',
+          };
+        }),
+      };
       const { error } = await client
         .from('admin_places')
-        .update(editDetailForm)
+        .update(sanitizedDetailForm)
         .eq('id', selectedPlaceForDetail.id);
 
       if (error) throw error;
@@ -2295,7 +2324,7 @@ export default function App() {
       setIsEditingDetail(false);
       fetchPlaces();
       // Update local state for the detail view
-      setSelectedPlaceForDetail({ ...selectedPlaceForDetail, ...editDetailForm } as Place);
+      setSelectedPlaceForDetail({ ...selectedPlaceForDetail, ...sanitizedDetailForm } as Place);
     } catch (err: any) {
       showToast("更新に失敗しました: " + err.message, "error");
     } finally {
@@ -2305,6 +2334,10 @@ export default function App() {
 
   const handleFilesDrop = async (files: File[], field: 'image_url' | 'images' | 'videos' | 'pdfs') => {
     if (files.length === 0) return;
+    if (field === 'videos') {
+      showToast(locale === 'jp' ? '動画はYouTube URLのみ対応です。動画ファイルのアップロードはできません。' : 'Videos are YouTube URL only. File uploads are disabled for videos.', 'info');
+      return;
+    }
     setUploading(true);
     try {
       addLog(`handleFilesDrop: Starting upload for ${files.length} files to ${field}`);
@@ -2367,10 +2400,14 @@ export default function App() {
   const handleFromSpotMediaDrop = async (itemId: string, files: File[]) => {
     if (files.length === 0) return;
     const file = files[0];
+    if (file.type.startsWith('video/')) {
+      showToast(locale === 'jp' ? 'From the Spot の動画はYouTube URLで登録してください。動画ファイルのアップロードは無効です。' : 'For From the Spot videos, please use a YouTube URL. Video file upload is disabled.', 'info');
+      return;
+    }
     setUploading(true);
     try {
       const url = await uploadToR2(file);
-      const mediaType: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
+      const mediaType: 'image' | 'video' = 'image';
       setEditDetailForm((prev) => ({
         ...prev,
         from_spot_items: (prev.from_spot_items || []).map((item) => (
@@ -2495,7 +2532,7 @@ export default function App() {
       const pdfs_raw = formData.get('pdfs') as string || (document.querySelector('textarea[name="pdfs"]') as HTMLTextAreaElement)?.value;
 
       const images = parseUrlList(images_raw);
-      const videos = parseUrlList(videos_raw);
+      const videos = normalizeYouTubeUrlList(videos_raw);
       
       let pdfs = [];
       try {
@@ -5181,7 +5218,7 @@ export default function App() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs only</label>
                         <textarea 
                           name="videos"
                           rows={3}
@@ -5189,7 +5226,7 @@ export default function App() {
                           placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                         />
-                        <p className="px-1 text-[11px] leading-relaxed text-stone-500">For now, MILZ stores YouTube links here. One URL per line is easiest. The same Supabase <code className="font-mono text-[10px]">videos</code> column is used, so no DB migration is needed.</p>
+                        <p className="px-1 text-[11px] leading-relaxed text-stone-500">MILZ stores YouTube links here. One URL per line is easiest. Non-YouTube video links are not used.</p>
                       </div>
 
                       <div className="space-y-2">
@@ -5530,7 +5567,7 @@ export default function App() {
                         <div className="space-y-6">
                           {isEditingDetail && (
                             <div className="space-y-2">
-                              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs</label>
+                              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs only</label>
                               <textarea
                                 value={(editDetailForm.videos || []).join('\n')}
                                 onChange={(e) => setEditDetailForm({ ...editDetailForm, videos: parseUrlList(e.target.value) })}
@@ -5538,18 +5575,15 @@ export default function App() {
                                 placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
                                 className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                               />
-                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">Paste YouTube Shorts or normal YouTube video URLs. They are stored in Supabase using the existing <code className="font-mono text-[10px]">videos</code> text array.</p>
+                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">Only YouTube Shorts or normal YouTube URLs are allowed. Other video links and file uploads are not used.</p>
                             </div>
                           )}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {(isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos)?.map((video, i) => {
+                            {((isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos) || []).filter((video) => !!extractYouTubeVideoId(video)).map((video, i) => {
                               const youtubeEmbedUrl = getYouTubeEmbedUrl(video);
                               return (
                                 <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden rounded-[28px]">
                                   <VideoEmbed url={video} title={`${selectedPlaceForDetail.name} video ${i + 1}`} />
-                                  {!youtubeEmbedUrl && (
-                                    <div className="absolute inset-0 pointer-events-none border-[20px] border-white/10 group-hover:border-white/0 transition-all duration-500" />
-                                  )}
                                   {isEditingDetail && (
                                     <button 
                                       onClick={() => {
@@ -5675,11 +5709,11 @@ export default function App() {
                                       />
                                       <div className="grid grid-cols-1 gap-3">
                                         <DropZone
-                                          label={locale === 'jp' ? '写真 / 動画をアップロード' : 'Upload photo / video'}
+                                          label={locale === 'jp' ? '写真をアップロード / 動画はYouTube URL' : 'Upload image / use YouTube URL for video'}
                                           onFilesDrop={(files) => handleFromSpotMediaDrop(item.id, files)}
                                           isLoading={uploading}
                                           className="min-h-[160px]"
-                                          accept="image/*,video/*"
+                                          accept="image/*"
                                         />
                                         <input
                                           type="text"
@@ -5689,7 +5723,7 @@ export default function App() {
                                             from_spot_items: (editDetailForm.from_spot_items || []).map((entry) => entry.id === item.id ? { ...entry, media_url: e.target.value, media_type: inferMediaTypeFromUrl(e.target.value) } : entry),
                                           })}
                                           className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all text-xs font-medium"
-                                          placeholder={locale === 'jp' ? '画像または動画URL' : 'Image or video URL'}
+                                          placeholder={locale === 'jp' ? '画像URL または YouTube URL' : 'Image URL or YouTube URL'}
                                         />
                                       </div>
                                       <div className="flex justify-end">
@@ -5729,7 +5763,7 @@ export default function App() {
                                   ) : (
                                     <div className="aspect-[4/5] rounded-[28px] border border-dashed border-stone-200 bg-stone-50 flex flex-col items-center justify-center gap-3 text-center px-6">
                                       <MessageSquare className="w-8 h-8 text-stone-300" />
-                                      <p className="text-[10px] font-black uppercase tracking-[0.25em] text-stone-400">{locale === 'jp' ? '現場の素材を追加' : 'Add media from the spot'}</p>
+                                      <p className="text-[10px] font-black uppercase tracking-[0.25em] text-stone-400">{locale === 'jp' ? '現場の写真またはYouTube動画を追加' : 'Add an image or YouTube video'}</p>
                                     </div>
                                   )}
                                 </div>
