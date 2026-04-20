@@ -408,7 +408,81 @@ interface AiRecommendationMetric {
 const DEFAULT_CATEGORY_OPTIONS = ['カフェ', 'レストラン', 'ショッピング', 'エンターテイメント', '公園・自然', '神社・寺院', 'その他'];
 const DEFAULT_BADGE_OPTIONS = ['Yukie Fav', 'Pet Friendly'];
 
-const AREA_OPTIONS: AreaOption[] = [
+const SPECIAL_AREA_CITIES: Record<string, AreaCityOption[]> = {
+  kyoto: [
+    { name: 'Kamigyo', center: [35.0297, 135.7563], zoom: 14 },
+    { name: 'Kita', center: [35.0518, 135.7525], zoom: 13 },
+    { name: 'Sakyo', center: [35.0434, 135.7786], zoom: 13 },
+    { name: 'Nakagyo', center: [35.0101, 135.7515], zoom: 14 },
+    { name: 'Higashiyama', center: [34.9968, 135.7784], zoom: 14 },
+    { name: 'Shimogyo', center: [34.9877, 135.7595], zoom: 14 },
+    { name: 'Minami', center: [34.9769, 135.7463], zoom: 13 },
+    { name: 'Ukyo', center: [35.0105, 135.6978], zoom: 13 },
+    { name: 'Fushimi', center: [34.9362, 135.7614], zoom: 13 },
+    { name: 'Yamashina', center: [34.9721, 135.8144], zoom: 13 },
+    { name: 'Nishikyo', center: [34.9858, 135.6934], zoom: 13 },
+  ],
+};
+
+const canonicalizeAreaCityKey = (value: string, areaKey: string) => value
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/county/gi, '')
+  .replace(/city/gi, '')
+  .replace(/ward/gi, 'ku')
+  .replace(/-shi/gi, '')
+  .replace(/\sshi/gi, '')
+  .replace(/-ku/gi, '')
+  .replace(/\sku/gi, '')
+  .replace(/[^a-z0-9]+/g, '')
+  .trim() + `::${areaKey}`;
+
+const formatGeneratedAreaCityName = (value: string, areaKey: string) => {
+  const cleaned = value.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+
+  if (areaKey === 'tokyo' || areaKey === 'kyoto') {
+    return cleaned
+      .replace(/-shi$/i, '')
+      .replace(/\s+shi$/i, '')
+      .replace(/\s*ku$/i, '')
+      .replace(/-ku$/i, '')
+      .replace(/\s+to$/i, '')
+      .trim();
+  }
+
+  return cleaned;
+};
+
+const buildAreaCityOptions = (area: AreaOption): AreaCityOption[] => {
+  const merged = new Map<string, AreaCityOption>();
+
+  const register = (city: AreaCityOption) => {
+    const label = formatGeneratedAreaCityName(city.name, area.key);
+    const key = canonicalizeAreaCityKey(label || city.name, area.key);
+    if (!merged.has(key)) {
+      merged.set(key, { ...city, name: label || city.name });
+    }
+  };
+
+  area.cities.forEach(register);
+  (SPECIAL_AREA_CITIES[area.key] || []).forEach(register);
+
+  try {
+    City.getCitiesOfState(area.countryCode, area.stateCode).forEach((city) => {
+      const lat = Number(city.latitude);
+      const lng = Number(city.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      register({ name: city.name, center: [lat, lng], zoom: area.zoom || 12 });
+    });
+  } catch (error) {
+    console.warn(`Failed to build city list for ${area.label}`, error);
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+const BASE_AREA_OPTIONS: AreaOption[] = [
   {
     key: 'new-york',
     label: 'New York',
@@ -500,6 +574,11 @@ const AREA_OPTIONS: AreaOption[] = [
     ],
   },
 ];
+
+const AREA_OPTIONS: AreaOption[] = BASE_AREA_OPTIONS.map((area) => ({
+  ...area,
+  cities: buildAreaCityOptions(area),
+}));
 
 const normalizeMapCoords = (latInput: number | string, lngInput: number | string) => {
   let lat = Number(latInput);
@@ -901,6 +980,7 @@ export default function App() {
     return 'original';
   });
   const [showMapStyleMenu, setShowMapStyleMenu] = useState(false);
+  const [expandedShortInfoId, setExpandedShortInfoId] = useState<string | null>(null);
 
   const newPlacePosition = useMemo(() => newPlacePos ? [newPlacePos.lat, newPlacePos.lng] as L.LatLngExpression : null, [newPlacePos]);
   
@@ -3600,120 +3680,195 @@ export default function App() {
                   const addressValue = item.address || (locale === 'jp' ? '住所情報はまだ登録されていません。' : 'Address details have not been added yet.');
                   const hoursValue = item.hours || (locale === 'jp' ? '営業時間は未登録です。' : 'Hours have not been added yet.');
                   const descriptionValue = item.description || (locale === 'jp' ? 'このSpotに登録されたショート動画です。' : 'A short video registered for this spot.');
+                  const spotInfoLabel = locale === 'jp' ? '店舗情報' : 'Spot Info';
+                  const isShortInfoOpen = expandedShortInfoId === item.id;
+
+                  const compactInfoPanel = (
+                    <div className="space-y-3">
+                      <div className="space-y-2 text-center xl:text-left">
+                        <div className="flex flex-wrap items-center justify-center xl:justify-start gap-2 text-[9px] font-black uppercase tracking-[0.3em] text-white/45">
+                          <span>MILZ SHORTS</span>
+                          <span className="h-1 w-1 rounded-full bg-white/25" />
+                          <span>{item.category}</span>
+                        </div>
+                        <h2 className="text-[2rem] sm:text-[2.4rem] xl:text-[3rem] font-black leading-[0.92] tracking-tight">{item.placeName}</h2>
+                        <p className="text-[13px] leading-relaxed text-white/62">{descriptionValue}</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="rounded-[1.4rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-4 space-y-2">
+                          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.26em] text-white/45">
+                            <MapPin className="w-3.5 h-3.5" />
+                            {addressLabel}
+                          </div>
+                          <p className="text-[13px] font-semibold leading-relaxed text-white/88 break-words">{addressValue}</p>
+                        </div>
+
+                        <div className="rounded-[1.4rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-4 space-y-2">
+                          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.26em] text-white/45">
+                            <Clock className="w-3.5 h-3.5" />
+                            {hoursLabel}
+                          </div>
+                          <p className="text-[13px] font-semibold leading-relaxed text-white/88 whitespace-pre-line">{hoursValue}</p>
+                        </div>
+
+                        <div className="rounded-[1.4rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-4 space-y-2 sm:col-span-2">
+                          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.26em] text-white/45">
+                            <FileText className="w-3.5 h-3.5" />
+                            {summaryLabel}
+                          </div>
+                          <p className="text-[13px] font-semibold leading-relaxed text-white/82">{descriptionValue}</p>
+                        </div>
+
+                        <div className="rounded-[1.4rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-4 flex flex-col gap-3 sm:col-span-2">
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.26em] text-white/45">
+                              <Globe className="w-3.5 h-3.5" />
+                              {websiteText}
+                            </div>
+                            <p className="text-[13px] font-semibold text-white/88 break-all">
+                              {websiteLabel || (locale === 'jp' ? '未登録' : 'Not added yet')}
+                            </p>
+                          </div>
+                          {item.websiteUrl ? (
+                            <a
+                              href={item.websiteUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center justify-center gap-2 self-start px-4 py-2.5 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] text-white hover:border-white/40 hover:bg-white/5 transition-all"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              {websiteText}
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
 
                   return (
                     <section
                       key={item.id}
-                      className="min-h-[calc(100svh-7rem)] snap-start px-4 pt-4 pb-[calc(12.5rem+env(safe-area-inset-bottom))] sm:px-6 md:px-8 md:pt-8 md:pb-44 flex items-start xl:items-center"
+                      className="min-h-[calc(100svh-7rem)] snap-start px-4 pt-4 pb-[calc(14.5rem+env(safe-area-inset-bottom))] sm:px-6 md:px-8 md:pt-8 md:pb-44 flex items-start xl:items-center"
                     >
-                      <div className="w-full max-w-[1400px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,400px)_minmax(360px,560px)_minmax(0,1fr)] gap-6 md:gap-8 xl:gap-14 items-center">
-                        <div className="w-full max-w-[270px] sm:max-w-[310px] lg:max-w-[340px] xl:max-w-[380px] mx-auto xl:col-start-2 xl:justify-self-center">
-                          <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)] max-h-[calc(100svh-20rem)] md:max-h-[calc(100svh-18rem)] xl:max-h-[calc(100svh-16rem)]">
-                            <iframe
-                              src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
-                              title={`${item.placeName} short`}
-                              className="w-full h-full"
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                              referrerPolicy="strict-origin-when-cross-origin"
-                              allowFullScreen
-                            />
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent" />
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 p-5 space-y-1.5">
-                              <div className="inline-flex items-center rounded-full border border-white/15 bg-black/35 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.28em] text-white/70 backdrop-blur-sm">
-                                {item.category}
-                              </div>
-                              <h3 className="text-xl md:text-2xl font-black leading-tight text-white">{item.placeName}</h3>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="w-full max-w-[560px] mx-auto xl:mx-0 xl:col-start-3 xl:justify-self-start space-y-4 md:space-y-5">
-                          <div className="space-y-2 md:space-y-3 text-center xl:text-left">
-                            <div className="flex flex-wrap items-center justify-center xl:justify-start gap-2 text-[10px] font-black uppercase tracking-[0.32em] text-white/45">
-                              <span>MILZ SHORTS</span>
-                              <span className="h-1 w-1 rounded-full bg-white/25" />
-                              <span>{item.category}</span>
-                            </div>
-                            <h2 className="text-[2.35rem] sm:text-[2.75rem] md:text-[3.4rem] xl:text-[4.2rem] font-black leading-[0.92] tracking-tight">{item.placeName}</h2>
-                            <p className="max-w-2xl text-sm md:text-[15px] leading-relaxed text-white/68">{descriptionValue}</p>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3">
-                              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
-                                <MapPin className="w-4 h-4" />
-                                {addressLabel}
-                              </div>
-                              <p className="text-sm md:text-[15px] font-semibold leading-relaxed text-white/88 break-words">{addressValue}</p>
-                            </div>
-
-                            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3">
-                              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
-                                <Clock className="w-4 h-4" />
-                                {hoursLabel}
-                              </div>
-                              <p className="text-sm md:text-[15px] font-semibold leading-relaxed text-white/88 whitespace-pre-line">{hoursValue}</p>
-                            </div>
-
-                            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3 md:col-span-2">
-                              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
-                                <FileText className="w-4 h-4" />
-                                {summaryLabel}
-                              </div>
-                              <p className="text-sm md:text-[15px] font-semibold leading-relaxed text-white/82">{descriptionValue}</p>
-                            </div>
-
-                            <div className="md:col-span-2 rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                              <div className="space-y-2 min-w-0">
-                                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
-                                  <Globe className="w-4 h-4" />
-                                  {websiteText}
+                      <div className="w-full max-w-[1280px] mx-auto">
+                        <div className="relative flex flex-col items-center xl:min-h-[calc(100svh-12rem)] xl:justify-center">
+                          <div className="w-full flex justify-center">
+                            <div className="w-full max-w-[270px] sm:max-w-[310px] md:max-w-[340px] xl:max-w-[390px]">
+                              <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)] max-h-[calc(100svh-16.5rem)] sm:max-h-[calc(100svh-15rem)] xl:max-h-[calc(100svh-8rem)] mx-auto">
+                                <iframe
+                                  src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
+                                  title={`${item.placeName} short`}
+                                  className="w-full h-full"
+                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                  referrerPolicy="strict-origin-when-cross-origin"
+                                  allowFullScreen
+                                />
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4 space-y-1.5">
+                                  <div className="inline-flex items-center rounded-full border border-white/15 bg-black/35 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.28em] text-white/70 backdrop-blur-sm">
+                                    {item.category}
+                                  </div>
+                                  <h3 className="text-xl md:text-2xl font-black leading-tight text-white">{item.placeName}</h3>
                                 </div>
-                                <p className="text-sm md:text-[15px] font-semibold text-white/88 break-all">
-                                  {websiteLabel || (locale === 'jp' ? '未登録' : 'Not added yet')}
-                                </p>
                               </div>
-                              {item.websiteUrl ? (
-                                <a
-                                  href={item.websiteUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] text-white hover:border-white/40 hover:bg-white/5 transition-all"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                  {websiteText}
-                                </a>
-                              ) : null}
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center justify-center xl:justify-start gap-3 pt-1">
+                          <div className="mt-4 w-full max-w-[680px] xl:hidden space-y-3">
+                            <div className="space-y-2 text-center">
+                              <div className="flex flex-wrap items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.3em] text-white/45">
+                                <span>MILZ SHORTS</span>
+                                <span className="h-1 w-1 rounded-full bg-white/25" />
+                                <span>{item.category}</span>
+                              </div>
+                              <h2 className="text-[2rem] sm:text-[2.35rem] font-black leading-[0.92] tracking-tight">{item.placeName}</h2>
+                              <p className="text-[13px] leading-relaxed text-white/62">{descriptionValue}</p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                              <button
+                                onClick={() => handleToggleFavorite(item.placeId)}
+                                className={cn(
+                                  "inline-flex items-center gap-2 px-5 py-3 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                                  isPlaceFav
+                                    ? "border-rose-300 bg-rose-500/10 text-rose-200"
+                                    : "border-white/15 text-white hover:border-white/40 hover:bg-white/5"
+                                )}
+                              >
+                                <Heart className={cn("w-4 h-4", isPlaceFav && "fill-current")} />
+                                {isPlaceFav ? 'Saved Spot' : 'Save Spot'}
+                              </button>
+                              <button
+                                onClick={() => handlePlaceViewOnMap({ lat: item.lat, lng: item.lng })}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] hover:border-white/40 hover:bg-white/5 transition-all"
+                              >
+                                <MapPinned className="w-4 h-4" />
+                                {t('viewOnMap')}
+                              </button>
+                              <button
+                                onClick={() => setSelectedPlaceForDetail(places.find((place) => place.id === item.placeId) || null)}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-[10px] font-black uppercase tracking-[0.22em] hover:bg-stone-100 transition-all"
+                              >
+                                <ArrowUpRight className="w-4 h-4" />
+                                {t('openSpot')}
+                              </button>
+                            </div>
+
                             <button
-                              onClick={() => handleToggleFavorite(item.placeId)}
-                              className={cn(
-                                "inline-flex items-center gap-2 px-5 py-3 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
-                                isPlaceFav
-                                  ? "border-rose-300 bg-rose-500/10 text-rose-200"
-                                  : "border-white/15 text-white hover:border-white/40 hover:bg-white/5"
+                              onClick={() => setExpandedShortInfoId((prev) => prev === item.id ? null : item.id)}
+                              className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.24em] text-white hover:border-white/40 hover:bg-white/5 transition-all"
+                            >
+                              <Info className="w-4 h-4" />
+                              {spotInfoLabel}
+                              <ChevronRight className={cn("w-4 h-4 transition-transform", isShortInfoOpen && "rotate-90")} />
+                            </button>
+
+                            <AnimatePresence initial={false}>
+                              {isShortInfoOpen && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 12, height: 0 }}
+                                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                                  exit={{ opacity: 0, y: 8, height: 0 }}
+                                  transition={{ duration: 0.24, ease: 'easeOut' }}
+                                  className="overflow-hidden"
+                                >
+                                  {compactInfoPanel}
+                                </motion.div>
                               )}
-                            >
-                              <Heart className={cn("w-4 h-4", isPlaceFav && "fill-current")} />
-                              {isPlaceFav ? 'Saved Spot' : 'Save Spot'}
-                            </button>
-                            <button
-                              onClick={() => handlePlaceViewOnMap({ lat: item.lat, lng: item.lng })}
-                              className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] hover:border-white/40 hover:bg-white/5 transition-all"
-                            >
-                              <MapPinned className="w-4 h-4" />
-                              {t('viewOnMap')}
-                            </button>
-                            <button
-                              onClick={() => setSelectedPlaceForDetail(places.find((place) => place.id === item.placeId) || null)}
-                              className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-[10px] font-black uppercase tracking-[0.22em] hover:bg-stone-100 transition-all"
-                            >
-                              <ArrowUpRight className="w-4 h-4" />
-                              {t('openSpot')}
-                            </button>
+                            </AnimatePresence>
+                          </div>
+
+                          <div className="hidden xl:block absolute top-1/2 left-1/2 ml-[270px] -translate-y-1/2 w-[380px] max-w-[calc(100vw-48rem)]">
+                            {compactInfoPanel}
+                            <div className="flex flex-wrap items-center gap-3 pt-4">
+                              <button
+                                onClick={() => handleToggleFavorite(item.placeId)}
+                                className={cn(
+                                  "inline-flex items-center gap-2 px-5 py-3 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                                  isPlaceFav
+                                    ? "border-rose-300 bg-rose-500/10 text-rose-200"
+                                    : "border-white/15 text-white hover:border-white/40 hover:bg-white/5"
+                                )}
+                              >
+                                <Heart className={cn("w-4 h-4", isPlaceFav && "fill-current")} />
+                                {isPlaceFav ? 'Saved Spot' : 'Save Spot'}
+                              </button>
+                              <button
+                                onClick={() => handlePlaceViewOnMap({ lat: item.lat, lng: item.lng })}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] hover:border-white/40 hover:bg-white/5 transition-all"
+                              >
+                                <MapPinned className="w-4 h-4" />
+                                {t('viewOnMap')}
+                              </button>
+                              <button
+                                onClick={() => setSelectedPlaceForDetail(places.find((place) => place.id === item.placeId) || null)}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-[10px] font-black uppercase tracking-[0.22em] hover:bg-stone-100 transition-all"
+                              >
+                                <ArrowUpRight className="w-4 h-4" />
+                                {t('openSpot')}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
