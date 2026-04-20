@@ -3203,7 +3203,7 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto bg-black text-white pb-40 md:pb-44 snap-y snap-mandatory"
+              className="h-full overflow-y-auto bg-black text-white pb-44 md:pb-48 snap-y snap-mandatory"
             >
               {shortsFeed.length === 0 ? (
                 <div className="h-full flex items-center justify-center px-6">
@@ -3220,14 +3220,18 @@ export default function App() {
                   const addressLabel = locale === 'jp' ? '住所' : 'Address';
                   const hoursLabel = locale === 'jp' ? '営業時間' : 'Hours';
                   const websiteText = locale === 'jp' ? '公式サイト' : 'Official Site';
+                  const summaryLabel = locale === 'jp' ? '店舗メモ' : 'Spot Note';
                   const addressValue = item.address || (locale === 'jp' ? '住所情報はまだ登録されていません。' : 'Address details have not been added yet.');
                   const hoursValue = item.hours || (locale === 'jp' ? '営業時間は未登録です。' : 'Hours have not been added yet.');
                   const descriptionValue = item.description || (locale === 'jp' ? 'このSpotに登録されたショート動画です。' : 'A short video registered for this spot.');
 
                   return (
-                    <section key={item.id} className="min-h-full snap-start px-4 pt-6 pb-36 md:px-8 md:pt-8 md:pb-40 flex items-center">
-                      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[minmax(300px,420px)_minmax(0,1fr)] gap-6 xl:gap-10 items-center">
-                        <div className="w-full max-w-[420px] mx-auto xl:mx-0">
+                    <section
+                      key={item.id}
+                      className="min-h-[calc(100svh-7rem)] snap-start px-4 pt-8 pb-40 md:px-8 md:pt-10 md:pb-48 flex items-center"
+                    >
+                      <div className="w-full max-w-[1460px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(340px,430px)_minmax(420px,560px)_minmax(0,1fr)] gap-6 xl:gap-8 items-center">
+                        <div className="w-full max-w-[430px] mx-auto xl:col-start-2 xl:mx-auto">
                           <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
                             <iframe
                               src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
@@ -3247,15 +3251,15 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="space-y-5 xl:pr-6">
+                        <div className="space-y-5 xl:col-start-3 xl:max-w-[560px]">
                           <div className="space-y-3">
                             <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.32em] text-white/45">
                               <span>MILZ SHORTS</span>
                               <span className="h-1 w-1 rounded-full bg-white/25" />
                               <span>{item.category}</span>
                             </div>
-                            <h2 className="text-3xl md:text-5xl xl:text-6xl font-black leading-[0.94] tracking-tight">{item.placeName}</h2>
-                            <p className="max-w-2xl text-sm md:text-base leading-relaxed text-white/68">{descriptionValue}</p>
+                            <h2 className="text-3xl md:text-[3.4rem] xl:text-[4.2rem] font-black leading-[0.92] tracking-tight">{item.placeName}</h2>
+                            <p className="max-w-2xl text-sm md:text-[15px] leading-relaxed text-white/68">{descriptionValue}</p>
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -3264,7 +3268,7 @@ export default function App() {
                                 <MapPin className="w-4 h-4" />
                                 {addressLabel}
                               </div>
-                              <p className="text-sm md:text-base font-semibold leading-relaxed text-white/88 break-words">{addressValue}</p>
+                              <p className="text-sm md:text-[15px] font-semibold leading-relaxed text-white/88 break-words">{addressValue}</p>
                             </div>
 
                             <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3">
@@ -3272,7 +3276,15 @@ export default function App() {
                                 <Clock className="w-4 h-4" />
                                 {hoursLabel}
                               </div>
-                              <p className="text-sm md:text-base font-semibold leading-relaxed text-white/88 whitespace-pre-line">{hoursValue}</p>
+                              <p className="text-sm md:text-[15px] font-semibold leading-relaxed text-white/88 whitespace-pre-line">{hoursValue}</p>
+                            </div>
+
+                            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3 md:col-span-2">
+                              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
+                                <FileText className="w-4 h-4" />
+                                {summaryLabel}
+                              </div>
+                              <p className="text-sm md:text-[15px] font-semibold leading-relaxed text-white/82">{descriptionValue}</p>
                             </div>
 
                             <div className="md:col-span-2 rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -3281,7 +3293,7 @@ export default function App() {
                                   <Globe className="w-4 h-4" />
                                   {websiteText}
                                 </div>
-                                <p className="text-sm md:text-base font-semibold text-white/88 break-all">
+                                <p className="text-sm md:text-[15px] font-semibold text-white/88 break-all">
                                   {websiteLabel || (locale === 'jp' ? '未登録' : 'Not added yet')}
                                 </p>
                               </div>
@@ -3337,286 +3349,435 @@ export default function App() {
           )}
 
           {activeTab === 'profile' && (
-            <motion.div 
+            <motion.div
               key="profile"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto p-6 pb-40 space-y-8 bg-stone-50 relative z-10"
+              className="h-full overflow-y-auto px-4 pt-6 pb-40 md:px-8 md:pt-8 md:pb-44 bg-[#f3f1ec] relative z-10"
             >
-              <div className="bg-white p-12 border border-stone-200 rounded-3xl shadow-2xl text-center space-y-8 max-w-2xl mx-auto">
-                <div className="relative inline-block">
-                  <div className="w-32 h-32 bg-black rounded-2xl flex items-center justify-center mx-auto shadow-2xl">
-                    <UserIcon className="w-12 h-12 text-white" />
-                  </div>
-                  {role === 'admin' && (
-                    <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-white border border-black rounded-full flex items-center justify-center shadow-lg">
-                      <ShieldCheck className="w-6 h-6 text-black" />
+              <div className="max-w-6xl mx-auto space-y-6">
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] items-start">
+                  <section className="bg-white border border-stone-300/80 rounded-[2rem] shadow-[0_20px_70px_rgba(0,0,0,0.06)] p-6 md:p-10 xl:p-12 space-y-8">
+                    <div className="space-y-4">
+                      <div className="text-[10px] font-black uppercase tracking-[0.32em] text-stone-400">S 04 — PROFILE</div>
+                      <div className="space-y-2">
+                        <h2 className="text-[3.1rem] md:text-[4.8rem] xl:text-[6rem] leading-[0.86] font-black uppercase tracking-[-0.06em] text-black break-words">
+                          {(profileDisplayName || user.email?.split('@')[0] || 'MILZ').replace(/\.$/, '')}.
+                        </h2>
+                        <p className="text-[11px] font-medium uppercase tracking-[0.26em] text-stone-500">— {locale === 'jp' ? 'MILZの読者' : 'A reader of MILZ'}</p>
+                      </div>
                     </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <h2 className="text-3xl font-serif font-bold text-black tracking-tight">{profileDisplayName || user.email?.split('@')[0] || 'USER'}</h2>
-                  <p className="text-stone-400 font-medium tracking-widest text-xs uppercase">{user.email}</p>
-                </div>
-                <div className="flex items-center justify-center gap-2">
-                  <span className={cn(
-                    "px-6 py-2 border border-black rounded-full text-[10px] font-black uppercase tracking-[0.3em]",
-                    role === 'admin' ? "bg-black text-white" : "bg-white text-black"
-                  )}>
-                    {role === 'admin' ? 'ADMINISTRATOR' : 'MEMBER'}
-                  </span>
-                </div>
-                <div className="max-w-md mx-auto w-full space-y-3 text-left">
-                  <div className="flex items-center gap-2 px-1">
-                    <Pencil className="w-4 h-4 text-stone-400" />
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Display Name</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      value={profileDisplayName}
-                      onChange={(e) => setProfileDisplayName(e.target.value)}
-                      placeholder="Enter your display name"
-                      className="flex-1 px-5 py-4 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all font-medium"
-                    />
-                    <button
-                      onClick={handleSaveProfileName}
-                      disabled={isSavingProfileName}
-                      className="px-6 py-4 rounded-2xl bg-black text-white text-[10px] font-black uppercase tracking-[0.28em] disabled:opacity-60 flex items-center justify-center gap-2 min-w-[128px]"
-                    >
-                      {isSavingProfileName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Save
-                    </button>
-                  </div>
-                </div>
-                <div className="text-[9px] font-mono text-stone-400 bg-stone-50 p-4 border border-stone-100 rounded-lg break-all">
-                  UID: {user.id}<br/>
-                  ACCESS: {role || 'none'}
-                </div>
 
-                <div className="space-y-4 text-left">
-                  <div className="flex items-center gap-2 px-1">
-                    <MapIcon className="w-4 h-4 text-stone-400" />
-                    <span className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Map Style Settings</span>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="text-[9px] font-black text-stone-400 uppercase tracking-[0.25em]">Choose default map style</div>
-                    <div className="grid grid-cols-2 gap-4">
-                      {mapStyleOptions.map((option) => (
-                        <button
-                          key={option.key}
-                          onClick={() => setMapStyle(option.key)}
-                          className={cn(
-                            "p-6 border rounded-xl transition-all text-left space-y-2",
-                            mapStyle === option.key
-                              ? "border-black bg-black text-white shadow-xl"
-                              : "border-stone-200 bg-white text-black hover:border-black"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="font-black text-xs uppercase tracking-widest">{option.label}</div>
-                            {mapStyle === option.key && <CheckCircle2 className="w-4 h-4" />}
-                          </div>
-                          <div className={cn(
-                            "text-[9px] font-medium leading-tight uppercase tracking-tighter",
-                            mapStyle === option.key ? "text-stone-300" : "text-stone-400"
-                          )}>
-                            {option.key === 'original'
-                              ? 'Classic top-down map'
-                              : option.key === 'style2'
-                                ? 'Current TOP visual style in top view'
-                                : option.key === 'style3'
-                                  ? 'Current Soft Tilt visual style in top view'
-                                  : 'Current Miniature visual style in top view'}
-                          </div>
-                        </button>
-                      ))}
+                    <div className="border-t border-stone-300" />
+
+                    <div className="space-y-6">
+                      <div className="grid gap-3 md:grid-cols-[140px_minmax(0,1fr)] md:items-start border-b border-stone-200 pb-5">
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Display Name</div>
+                        <div className="space-y-3">
+                          <input
+                            value={profileDisplayName}
+                            onChange={(e) => setProfileDisplayName(e.target.value)}
+                            placeholder={locale === 'jp' ? '表示名を入力' : 'Enter your display name'}
+                            className="w-full px-0 py-0 bg-transparent border-0 border-b border-stone-300 rounded-none outline-none focus:border-black transition-all text-lg md:text-xl font-semibold text-black placeholder:text-stone-300"
+                          />
+                          <p className="text-sm text-stone-500">{locale === 'jp' ? 'プロフィール上で表示される名前です。' : 'This name will be used across your profile.'}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-[140px_minmax(0,1fr)] md:items-start border-b border-stone-200 pb-5">
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Email</div>
+                        <div className="text-base md:text-lg font-medium text-stone-700 break-all">{user.email}</div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-[140px_minmax(0,1fr)] md:items-start border-b border-stone-200 pb-5">
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Language</div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setLocale('jp')}
+                            className={cn(
+                              "px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                              locale === 'jp' ? "bg-black text-white border-black" : "bg-white text-stone-500 border-stone-300 hover:border-black hover:text-black"
+                            )}
+                          >
+                            JP
+                          </button>
+                          <button
+                            onClick={() => setLocale('en')}
+                            className={cn(
+                              "px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                              locale === 'en' ? "bg-black text-white border-black" : "bg-white text-stone-500 border-stone-300 hover:border-black hover:text-black"
+                            )}
+                          >
+                            EN
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-[140px_minmax(0,1fr)] md:items-start">
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Access</div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="inline-flex items-center rounded-full border border-black px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-black">{role === 'admin' ? 'Admin' : 'Member'}</span>
+                          <span className="text-sm text-stone-500">UID: {user.id}</span>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-stone-400 leading-relaxed">Changing the style here also saves it as the default map style.</p>
-                  </div>
-                </div>
 
-                <div className="pt-4 space-y-2">
-                  <button
-                    onClick={handleLogout}
-                    className="w-full py-4 text-[10px] font-black text-black hover:bg-stone-50 transition-all uppercase tracking-[0.3em] border border-black rounded-xl"
-                  >
-                    Sign Out
-                  </button>
-                  <button
-                    onClick={async () => {
-                      addLog('Manual Connection Test: Starting...');
-                      const diag = await testSupabaseConnection();
-                      if (diag.success) {
-                        addLog(`Manual Connection Test: Success (${diag.message})`);
-                        showToast(`接続成功! (${diag.message})`, "success");
-                      } else {
-                        addLog(`Manual Connection Test: Failed (${diag.message})`);
-                        console.error('Connection Test Failed:', diag);
-                        let msg = `接続失敗: ${diag.message}`;
-                        if (diag.details) msg += `\n詳細: ${diag.details}`;
-                        
-                        if (diag.isTimeout) {
-                          msg += `\n\n【考えられる原因】\n1. Supabaseプロジェクトが「Paused (停止中)」になっている（ダッシュボードでRestoreしてください）\n2. ネットワーク環境（VPNや社内LAN）で通信が遮断されている\n3. URLが間違っている（https://[ID].supabase.co である必要があります）`;
-                        }
-                        
-                        // Check for common URL errors
-                        const url = import.meta.env.VITE_SUPABASE_URL || '';
-                        if (url.includes('supabase.com/dashboard')) {
-                          msg += `\n\n⚠️ 注意: URLにダッシュボードのURLが設定されています。API URLを設定してください。`;
-                        } else if (!url.startsWith('https://')) {
-                          msg += `\n\n⚠️ 注意: URLは https:// で始まる必要があります。`;
-                        }
-                        
-                        showToast(msg, "error");
-                      }
-                    }}
-                    className="w-full py-4 text-[10px] font-black text-stone-400 hover:text-black transition-colors uppercase tracking-[0.3em] border border-stone-200 rounded-xl"
-                  >
-                    Test DB Connection
-                  </button>
-                  <button
-                    onClick={async () => {
-                      addLog('Raw Fetch Test: Starting...');
-                      try {
-                        const url = import.meta.env.VITE_SUPABASE_URL;
-                        const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-                        
-                        if (!url || !key) {
-                          addLog('Raw Fetch Test: Skipped (Config missing)');
-                          showToast('設定が不足しています', "error");
-                          return;
-                        }
-
-                        const res = await fetch(`${url}/rest/v1/admin_places?select=*`, {
-                          headers: {
-                            'apikey': key,
-                            'Authorization': `Bearer ${key}`
-                          }
-                        });
-                        if (res.ok) {
-                          const data = await res.json();
-                          addLog(`Raw Fetch Test: Success (${data.length} items)`);
-                          setPlaces(data);
-                          showToast(`Raw Fetch成功: ${data.length}件`, "success");
-                        } else {
-                          const err = await res.text();
-                          addLog(`Raw Fetch Test: Failed (${res.status})`);
-                          showToast(`Raw Fetch失敗: ${res.status}`, "error");
-                        }
-                      } catch (e: any) {
-                        addLog(`Raw Fetch Test: Exception: ${e.message}`);
-                        let msg = e.message;
-                        if (msg === 'Failed to fetch') {
-                          msg = 'Failed to fetch (Supabaseへの接続に失敗しました。URLが正しいか、プロジェクトが一時停止されていないか確認してください)';
-                        }
-                        showToast(`Raw Fetchエラー: ${msg}`, "error");
-                      }
-                    }}
-                    className="w-full py-3 text-[10px] font-black text-blue-600 hover:text-blue-700 transition-colors uppercase tracking-widest bg-blue-50 rounded-xl"
-                  >
-                    Debug: Fetch with Raw API
-                  </button>
-                  <button
-                    onClick={async () => {
-                      addLog('Manual Reset: Resetting client...');
-                      resetSupabaseClient();
-                      addLog('Manual Reset: Client recreated. Retrying fetch...');
-                      fetchPlaces();
-                      showToast("再初期化しました。", "info");
-                    }}
-                    className="w-full py-3 text-[10px] font-black text-amber-600 hover:text-amber-700 transition-colors uppercase tracking-widest bg-amber-50 rounded-xl"
-                  >
-                    Reset & Reconnect
-                  </button>
-                  <button
-                    onClick={() => {
-                      localStorage.clear();
-                      sessionStorage.clear();
-                      addLog('Manual Reset: Storage cleared. Reloading...');
-                      showToast("キャッシュをクリアしました。", "info");
-                      window.location.reload();
-                    }}
-                    className="w-full py-3 text-[10px] font-black text-rose-600 hover:text-rose-700 transition-colors uppercase tracking-widest bg-rose-50 rounded-xl"
-                  >
-                    Clear Cache & Session
-                  </button>
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="w-full py-3 text-[10px] font-black text-stone-600 hover:text-stone-700 transition-colors uppercase tracking-widest bg-stone-100 rounded-xl"
-                  >
-                    Refresh Application
-                  </button>
-                  <button
-                    onClick={() => setShowSqlModal(true)}
-                    className="w-full py-3 text-[10px] font-black text-stone-600 hover:text-stone-700 transition-colors uppercase tracking-widest bg-stone-100 rounded-xl"
-                  >
-                    View SQL Setup Script
-                  </button>
-                  <button
-                    onClick={() => setShowConfigModal(true)}
-                    className="w-full py-3 text-[10px] font-black text-stone-600 hover:text-stone-700 transition-colors uppercase tracking-widest bg-stone-100 rounded-xl"
-                  >
-                    Check Config URL & Key
-                  </button>
-
-                  {/* Debug Logs Section */}
-                  <div className="pt-6 border-t border-stone-100 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Debug Logs</h3>
-                      <button 
-                        onClick={() => setDebugLogs([])}
-                        className="text-[10px] font-black text-stone-400 hover:text-stone-600 uppercase"
+                    <div className="border-t border-stone-300 pt-6 flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={handleSaveProfileName}
+                        disabled={isSavingProfileName}
+                        className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-black text-white text-[10px] font-black uppercase tracking-[0.24em] disabled:opacity-60"
                       >
-                        Clear
+                        {isSavingProfileName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {locale === 'jp' ? '保存' : 'Save'}
+                      </button>
+                      <button
+                        onClick={handleLogout}
+                        className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.24em] text-stone-700 hover:border-black hover:text-black transition-all"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        {locale === 'jp' ? 'サインアウト' : 'Sign out'}
                       </button>
                     </div>
-                    <div className="bg-stone-900 p-4 h-40 overflow-y-auto font-mono text-[10px] text-emerald-400 space-y-1 text-left rounded-xl">
-                      {debugLogs.length === 0 ? (
-                        <div className="text-stone-600 italic">No logs yet...</div>
-                      ) : (
-                        debugLogs.map((log, i) => (
-                          <div key={i} className="border-b border-stone-800 pb-1 last:border-0">
-                            {log}
-                          </div>
-                        ))
-                      )}
+                  </section>
+
+                  <aside className="space-y-4">
+                    <div className="bg-white border border-stone-300/80 rounded-[2rem] p-5 md:p-6 shadow-[0_18px_60px_rgba(0,0,0,0.05)]">
+                      <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400 mb-4">Overview</div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4 text-center">
+                          <div className="text-2xl font-black tracking-tight text-black">{favorites.length}</div>
+                          <div className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Saved</div>
+                        </div>
+                        <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4 text-center">
+                          <div className="text-2xl font-black tracking-tight text-black">{aiFavorites.length}</div>
+                          <div className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">AI</div>
+                        </div>
+                        <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4 text-center">
+                          <div className="text-2xl font-black tracking-tight text-black">{places.length}</div>
+                          <div className="mt-1 text-[9px] font-black uppercase tracking-[0.2em] text-stone-400">Spots</div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      console.log('App: Manual Role Refresh');
-                      fetchProfile(user.id, user.email);
-                    }}
-                    className="w-full py-3 text-[10px] font-black text-stone-400 hover:text-stone-600 transition-colors uppercase tracking-widest rounded-xl"
-                  >
-                    Refresh Permissions
-                  </button>
-                </div>
-              </div>
 
-              <div className="space-y-4">
-                <h3 className="text-xs font-black text-stone-400 uppercase tracking-widest px-2">Stats</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white p-6 border border-stone-100 shadow-sm rounded-2xl">
-                    <p className="text-2xl font-serif font-bold text-stone-900">{favorites.length}</p>
-                    <p className="text-[10px] font-black text-stone-400 uppercase">Favorites</p>
-                  </div>
-                  <div className="bg-white p-6 border border-stone-100 shadow-sm rounded-2xl">
-                    <p className="text-2xl font-serif font-bold text-stone-900">{places.length}</p>
-                    <p className="text-[10px] font-black text-stone-400 uppercase">Global Spots</p>
-                  </div>
-                  <div className="bg-white p-6 border border-stone-100 shadow-sm rounded-2xl">
-                    <p className="text-2xl font-serif font-bold text-stone-900">{aiFavorites.length}</p>
-                    <p className="text-[10px] font-black text-stone-400 uppercase">AI Saves</p>
-                  </div>
+                    <div className="bg-white border border-stone-300/80 rounded-[2rem] p-5 md:p-6 shadow-[0_18px_60px_rgba(0,0,0,0.05)] space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Map Style</div>
+                          <div className="mt-1 text-sm text-stone-500">{locale === 'jp' ? 'プロフィールからも標準スタイルを変更できます。' : 'Set your default map style from here.'}</div>
+                        </div>
+                        <Layers3 className="w-5 h-5 text-stone-400" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {mapStyleOptions.map((option) => (
+                          <button
+                            key={option.key}
+                            onClick={() => setMapStyle(option.key)}
+                            className={cn(
+                              "rounded-[1.2rem] border p-4 text-left transition-all space-y-2",
+                              mapStyle === option.key
+                                ? "border-black bg-black text-white shadow-xl"
+                                : "border-stone-200 bg-stone-50 text-black hover:border-black"
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[10px] font-black uppercase tracking-[0.22em]">{option.label}</div>
+                              {mapStyle === option.key && <CheckCircle2 className="w-4 h-4" />}
+                            </div>
+                            <div className={cn("text-[10px] leading-relaxed", mapStyle === option.key ? "text-white/70" : "text-stone-500")}>
+                              {option.key === 'original'
+                                ? (locale === 'jp' ? 'クラシックな標準マップ' : 'Classic top-down map')
+                                : option.key === 'style2'
+                                  ? (locale === 'jp' ? '洗練されたトップビュー' : 'Refined top-view style')
+                                  : option.key === 'style3'
+                                    ? (locale === 'jp' ? 'やわらかな傾斜表現' : 'Soft tilted map style')
+                                    : (locale === 'jp' ? 'ミニチュア感のある立体表現' : 'Miniature-inspired 3D look')}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </aside>
                 </div>
-              </div>
 
-              <div className="pt-8 text-center">
-                <p className="text-[10px] text-stone-300 font-bold uppercase tracking-widest">
-                  Powered by milztech
-                </p>
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <section className="bg-white border border-stone-300/80 rounded-[2rem] p-5 md:p-6 shadow-[0_18px_60px_rgba(0,0,0,0.05)] space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Saved Spots</div>
+                        <h3 className="mt-2 text-2xl font-black tracking-tight text-black">{locale === 'jp' ? 'お気に入りスポット' : 'Your saved spots'}</h3>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setListFilter('favorites');
+                          setActiveTab('list');
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.22em] text-stone-600 hover:border-black hover:text-black transition-all"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                        {locale === 'jp' ? '一覧を見る' : 'View all'}
+                      </button>
+                    </div>
+
+                    {favoritePlaces.length === 0 ? (
+                      <div className="rounded-[1.6rem] border border-dashed border-stone-300 bg-stone-50 p-6 text-sm text-stone-500">
+                        {locale === 'jp' ? 'まだお気に入りスポットは保存されていません。' : 'No saved spots yet.'}
+                      </div>
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {favoritePlaces.slice(0, 6).map((place) => (
+                          <button
+                            key={place.id}
+                            onClick={() => setSelectedPlaceForDetail(place)}
+                            className="group text-left rounded-[1.6rem] overflow-hidden border border-stone-200 bg-stone-50 hover:border-black transition-all"
+                          >
+                            <div className="aspect-[16/10] bg-stone-200 overflow-hidden">
+                              {place.image_url || place.images?.[0] ? (
+                                <img
+                                  src={place.image_url || place.images?.[0]}
+                                  alt={place.name}
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-stone-200 via-stone-100 to-stone-200" />
+                              )}
+                            </div>
+                            <div className="p-4 space-y-3">
+                              <div>
+                                <div className="text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">{place.category}</div>
+                                <div className="mt-1 text-lg font-black tracking-tight text-black line-clamp-2">{place.name}</div>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-stone-500 line-clamp-1">{place.address || [place.municipality, place.prefecture].filter(Boolean).join(', ') || (locale === 'jp' ? '住所未登録' : 'Address unavailable')}</span>
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlaceViewOnMap({ lat: place.lat, lng: place.lng });
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.2em] text-stone-500 group-hover:text-black"
+                                >
+                                  <MapPinned className="w-4 h-4" />
+                                  MAP
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="bg-white border border-stone-300/80 rounded-[2rem] p-5 md:p-6 shadow-[0_18px_60px_rgba(0,0,0,0.05)] space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">AI Saved</div>
+                        <h3 className="mt-2 text-2xl font-black tracking-tight text-black">{locale === 'jp' ? 'AI保存スポット' : 'AI saved places'}</h3>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setListFilter('ai_favorites');
+                          setActiveTab('list');
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.22em] text-stone-600 hover:border-black hover:text-black transition-all"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                        {locale === 'jp' ? '一覧を見る' : 'View all'}
+                      </button>
+                    </div>
+
+                    {aiFavorites.length === 0 ? (
+                      <div className="rounded-[1.6rem] border border-dashed border-stone-300 bg-stone-50 p-6 text-sm text-stone-500">
+                        {locale === 'jp' ? 'まだAI保存スポットはありません。' : 'No AI saves yet.'}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {aiFavorites.slice(0, 6).map((item) => {
+                          const localized = getAiFavoriteDisplay(item, locale);
+                          return (
+                            <div key={item.key} className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4 space-y-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">{localized.category}</div>
+                                  <div className="mt-1 text-lg font-black tracking-tight text-black">{localized.name}</div>
+                                </div>
+                                <button
+                                  onClick={() => handleAiViewOnMap({ name: localized.name, lat: item.lat, lng: item.lng })}
+                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600 hover:border-black hover:text-black transition-all"
+                                >
+                                  <MapPinned className="w-4 h-4" />
+                                  MAP
+                                </button>
+                              </div>
+                              <p className="text-sm leading-relaxed text-stone-600">{localized.reason}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                </div>
+
+                {role === 'admin' && (
+                  <details className="bg-white border border-stone-300/80 rounded-[2rem] p-5 md:p-6 shadow-[0_18px_60px_rgba(0,0,0,0.05)]">
+                    <summary className="cursor-pointer list-none flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">Admin Utilities</div>
+                        <div className="mt-2 text-2xl font-black tracking-tight text-black">{locale === 'jp' ? '管理者ツール' : 'Admin tools'}</div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-stone-400" />
+                    </summary>
+
+                    <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.9fr)]">
+                      <div className="space-y-3">
+                        <button
+                          onClick={async () => {
+                            addLog('Manual Connection Test: Starting...');
+                            const diag = await testSupabaseConnection();
+                            if (diag.success) {
+                              addLog(`Manual Connection Test: Success (${diag.message})`);
+                              showToast(`接続成功! (${diag.message})`, 'success');
+                            } else {
+                              addLog(`Manual Connection Test: Failed (${diag.message})`);
+                              console.error('Connection Test Failed:', diag);
+                              let msg = `接続失敗: ${diag.message}`;
+                              if (diag.details) msg += `
+詳細: ${diag.details}`;
+                              if (diag.isTimeout) {
+                                msg += `
+
+【考えられる原因】
+1. Supabaseプロジェクトが「Paused (停止中)」になっている（ダッシュボードでRestoreしてください）
+2. ネットワーク環境（VPNや社内LAN）で通信が遮断されている
+3. URLが間違っている（https://[ID].supabase.co である必要があります）`;
+                              }
+                              const url = import.meta.env.VITE_SUPABASE_URL || '';
+                              if (url.includes('supabase.com/dashboard')) {
+                                msg += `
+
+⚠️ 注意: URLにダッシュボードのURLが設定されています。API URLを設定してください。`;
+                              } else if (!url.startsWith('https://')) {
+                                msg += `
+
+⚠️ 注意: URLは https:// で始まる必要があります。`;
+                              }
+                              showToast(msg, 'error');
+                            }
+                          }}
+                          className="w-full py-3 text-[10px] font-black text-stone-700 hover:text-black transition-colors uppercase tracking-[0.24em] border border-stone-300 rounded-xl bg-stone-50"
+                        >
+                          Test DB Connection
+                        </button>
+                        <button
+                          onClick={async () => {
+                            addLog('Raw Fetch Test: Starting...');
+                            try {
+                              const url = import.meta.env.VITE_SUPABASE_URL;
+                              const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                              if (!url || !key) {
+                                addLog('Raw Fetch Test: Skipped (Config missing)');
+                                showToast('設定が不足しています', 'error');
+                                return;
+                              }
+                              const res = await fetch(`${url}/rest/v1/admin_places?select=*`, {
+                                headers: {
+                                  'apikey': key,
+                                  'Authorization': `Bearer ${key}`
+                                }
+                              });
+                              if (res.ok) {
+                                const data = await res.json();
+                                addLog(`Raw Fetch Test: Success (${data.length} items)`);
+                                setPlaces(data);
+                                showToast(`Raw Fetch成功: ${data.length}件`, 'success');
+                              } else {
+                                addLog(`Raw Fetch Test: Failed (${res.status})`);
+                                showToast(`Raw Fetch失敗: ${res.status}`, 'error');
+                              }
+                            } catch (e: any) {
+                              addLog(`Raw Fetch Test: Exception: ${e.message}`);
+                              let msg = e.message;
+                              if (msg === 'Failed to fetch') {
+                                msg = 'Failed to fetch (Supabaseへの接続に失敗しました。URLが正しいか、プロジェクトが一時停止されていないか確認してください)';
+                              }
+                              showToast(`Raw Fetchエラー: ${msg}`, 'error');
+                            }
+                          }}
+                          className="w-full py-3 text-[10px] font-black text-blue-700 hover:text-blue-800 transition-colors uppercase tracking-[0.24em] border border-blue-200 rounded-xl bg-blue-50"
+                        >
+                          Debug: Fetch with Raw API
+                        </button>
+                        <button
+                          onClick={() => {
+                            addLog('Manual Reset: Resetting client...');
+                            resetSupabaseClient();
+                            addLog('Manual Reset: Client recreated. Retrying fetch...');
+                            fetchPlaces();
+                            showToast('再初期化しました。', 'info');
+                          }}
+                          className="w-full py-3 text-[10px] font-black text-amber-700 hover:text-amber-800 transition-colors uppercase tracking-[0.24em] border border-amber-200 rounded-xl bg-amber-50"
+                        >
+                          Reset & Reconnect
+                        </button>
+                        <button
+                          onClick={() => {
+                            localStorage.clear();
+                            sessionStorage.clear();
+                            addLog('Manual Reset: Storage cleared. Reloading...');
+                            showToast('キャッシュをクリアしました。', 'info');
+                            window.location.reload();
+                          }}
+                          className="w-full py-3 text-[10px] font-black text-rose-700 hover:text-rose-800 transition-colors uppercase tracking-[0.24em] border border-rose-200 rounded-xl bg-rose-50"
+                        >
+                          Clear Cache & Session
+                        </button>
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="w-full py-3 text-[10px] font-black text-stone-700 hover:text-black transition-colors uppercase tracking-[0.24em] border border-stone-300 rounded-xl bg-stone-50"
+                        >
+                          Refresh Application
+                        </button>
+                        <button
+                          onClick={() => setShowSqlModal(true)}
+                          className="w-full py-3 text-[10px] font-black text-stone-700 hover:text-black transition-colors uppercase tracking-[0.24em] border border-stone-300 rounded-xl bg-stone-50"
+                        >
+                          View SQL Setup Script
+                        </button>
+                        <button
+                          onClick={() => setShowConfigModal(true)}
+                          className="w-full py-3 text-[10px] font-black text-stone-700 hover:text-black transition-colors uppercase tracking-[0.24em] border border-stone-300 rounded-xl bg-stone-50"
+                        >
+                          Check Config URL & Key
+                        </button>
+                        <button
+                          onClick={() => {
+                            console.log('App: Manual Role Refresh');
+                            fetchProfile(user.id, user.email);
+                          }}
+                          className="w-full py-3 text-[10px] font-black text-stone-700 hover:text-black transition-colors uppercase tracking-[0.24em] border border-stone-300 rounded-xl bg-stone-50"
+                        >
+                          Refresh Permissions
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Debug Logs</h3>
+                          <button onClick={() => setDebugLogs([])} className="text-[10px] font-black text-stone-400 hover:text-stone-600 uppercase">Clear</button>
+                        </div>
+                        <div className="bg-stone-900 p-4 h-72 overflow-y-auto font-mono text-[10px] text-emerald-400 space-y-1 text-left rounded-xl">
+                          {debugLogs.length === 0 ? (
+                            <div className="text-stone-600 italic">No logs yet...</div>
+                          ) : (
+                            debugLogs.map((log, i) => (
+                              <div key={i} className="border-b border-stone-800 pb-1 last:border-0">{log}</div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+                )}
               </div>
             </motion.div>
           )}
