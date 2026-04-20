@@ -435,6 +435,7 @@ interface AiFavoriteRow {
   id?: string;
   user_id: string;
   favorite_key: string;
+  canonical_key?: string | null;
   name: string;
   reason: string;
   category: string;
@@ -723,8 +724,79 @@ const createAiFavoriteKey = (rec: { lat: number; lng: number; name?: string; are
   const lng = normalized?.lng ?? Number(rec.lng) ?? 0;
   const areaKey = rec.area_key || inferAreaKeyFromCoords(lat, lng) || 'unknown';
   const cityKey = createAiFavoriteSlug(rec.city_name || 'all');
-  const nameKey = createAiFavoriteSlug(rec.name || 'spot');
-  return `ai::${areaKey}::${cityKey}::${nameKey}::${lat.toFixed(4)}::${lng.toFixed(4)}`;
+  return `ai::${areaKey}::${cityKey}::${lat.toFixed(4)}::${lng.toFixed(4)}`;
+};
+
+
+const normalizeAiComparisonName = (value?: string | null) => {
+  return (value || '')
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[\s\-‐‑‒–—―_/.,()【】「」『』·・'’`´]/g, '');
+};
+
+const areAiFavoriteCitiesEquivalent = (left?: string | null, right?: string | null) => {
+  const leftSlug = createAiFavoriteSlug(left || 'all');
+  const rightSlug = createAiFavoriteSlug(right || 'all');
+  if (leftSlug === 'all' || rightSlug === 'all') return true;
+  return leftSlug === rightSlug;
+};
+
+const getDistanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const aValue = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  const c = 2 * Math.atan2(Math.sqrt(aValue), Math.sqrt(1 - aValue));
+  return earthRadius * c;
+};
+
+const getAiFavoriteAllNames = (item: { name?: string; translations?: Partial<Record<Locale, AiFavoriteTranslation>> }) => {
+  const names = new Set<string>();
+  if (item.name) names.add(item.name);
+  Object.values(item.translations || {}).forEach((translation) => {
+    if (translation?.name) names.add(translation.name);
+  });
+  return Array.from(names);
+};
+
+const areAiFavoritesEquivalent = (
+  left: { name?: string; lat: number; lng: number; area_key?: string; city_name?: string; category?: string; translations?: Partial<Record<Locale, AiFavoriteTranslation>> },
+  right: { name?: string; lat: number; lng: number; area_key?: string; city_name?: string; category?: string; translations?: Partial<Record<Locale, AiFavoriteTranslation>> },
+) => {
+  const leftCoords = normalizeMapCoords(left.lat, left.lng);
+  const rightCoords = normalizeMapCoords(right.lat, right.lng);
+  if (!leftCoords || !rightCoords) return false;
+
+  const leftArea = left.area_key || inferAreaKeyFromCoords(leftCoords.lat, leftCoords.lng) || 'unknown';
+  const rightArea = right.area_key || inferAreaKeyFromCoords(rightCoords.lat, rightCoords.lng) || 'unknown';
+  if (leftArea !== rightArea) return false;
+  if (!areAiFavoriteCitiesEquivalent(left.city_name, right.city_name)) return false;
+
+  const exactCoords = Math.abs(leftCoords.lat - rightCoords.lat) <= 0.00015 && Math.abs(leftCoords.lng - rightCoords.lng) <= 0.00015;
+  if (exactCoords) return true;
+
+  const nearby = getDistanceMeters(leftCoords, rightCoords) <= 40;
+  if (!nearby) return false;
+
+  const leftNames = getAiFavoriteAllNames(left).map(normalizeAiComparisonName).filter(Boolean);
+  const rightNames = getAiFavoriteAllNames(right).map(normalizeAiComparisonName).filter(Boolean);
+  const nameMatches = leftNames.some((name) => rightNames.includes(name));
+  if (nameMatches) return true;
+
+  return Boolean(left.category && right.category && left.category === right.category && exactCoords);
+};
+
+const findMatchingAiFavoriteItem = (
+  items: AiFavoriteItem[],
+  rec: { name?: string; lat: number; lng: number; area_key?: string; city_name?: string; category?: string; translations?: Partial<Record<Locale, AiFavoriteTranslation>> },
+) => {
+  return items.find((item) => areAiFavoritesEquivalent(item, rec)) || null;
 };
 
 const containsJapanese = (value: string) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(value);
@@ -765,7 +837,7 @@ const mapAiFavoriteRowToItem = (row: Partial<AiFavoriteRow>): AiFavoriteItem | n
   const normalized = normalizeMapCoords(row.lat as number, row.lng as number);
   if (!normalized) return null;
 
-  const key = row.favorite_key || createAiFavoriteKey({
+  const key = row.canonical_key || createAiFavoriteKey({
     name: row.name,
     lat: normalized.lat,
     lng: normalized.lng,
@@ -791,6 +863,7 @@ const mapAiFavoriteRowToItem = (row: Partial<AiFavoriteRow>): AiFavoriteItem | n
 const mapAiFavoriteItemToRow = (item: AiFavoriteItem, userId: string): AiFavoriteRow => ({
   user_id: userId,
   favorite_key: item.key,
+  canonical_key: item.key,
   name: item.name,
   reason: item.reason,
   category: item.category,
@@ -804,22 +877,33 @@ const mapAiFavoriteItemToRow = (item: AiFavoriteItem, userId: string): AiFavorit
 });
 
 const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
-  const merged = new Map<string, AiFavoriteItem>();
+  const merged: AiFavoriteItem[] = [];
 
   items.forEach((item) => {
     const normalized = normalizeMapCoords(item?.lat, item?.lng);
     if (!normalized || !item?.name) return;
 
-    const key = item?.favorite_key || createAiFavoriteKey({
-      name: item?.name,
+    const candidate: AiFavoriteItem = {
+      key: item?.canonical_key || createAiFavoriteKey({
+        name: item?.name,
+        lat: normalized.lat,
+        lng: normalized.lng,
+        area_key: item?.area_key || undefined,
+        city_name: item?.city_name || undefined,
+      }),
+      name: item.name,
+      reason: item?.reason || '',
+      category: item?.category || 'AI Recommendation',
       lat: normalized.lat,
       lng: normalized.lng,
+      created_at: item?.created_at || new Date().toISOString(),
+      details: item?.details || item?.reason || '',
       area_key: item?.area_key || undefined,
       city_name: item?.city_name || undefined,
-    });
-    const itemLocale = guessAiFavoriteLocale(item);
-    const entry = merged.get(key);
+      translations: item?.translations || undefined,
+    };
 
+    const itemLocale = guessAiFavoriteLocale(item);
     const translation: AiFavoriteTranslation = {
       name: item.name,
       reason: item?.reason || '',
@@ -827,26 +911,19 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       details: item?.details || item?.reason || '',
     };
 
-    if (!entry) {
-      merged.set(key, {
-        key,
-        name: translation.name,
-        reason: translation.reason,
-        category: translation.category,
-        lat: normalized.lat,
-        lng: normalized.lng,
-        created_at: item?.created_at || new Date().toISOString(),
+    const existingIndex = merged.findIndex((entry) => areAiFavoritesEquivalent(entry, candidate));
+    if (existingIndex === -1) {
+      merged.push({
+        ...candidate,
         translations: {
           ...(item?.translations || {}),
           [itemLocale]: translation,
         },
-        details: translation.details || item?.details || item?.reason || '',
-        area_key: item?.area_key || undefined,
-        city_name: item?.city_name || undefined,
       });
       return;
     }
 
+    const entry = merged[existingIndex];
     const mergedTranslations = {
       ...(entry.translations || {}),
       ...(item?.translations || {}),
@@ -857,8 +934,9 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       ? item?.created_at || entry.created_at
       : entry.created_at;
 
-    merged.set(key, {
+    merged[existingIndex] = {
       ...entry,
+      key: entry.key || candidate.key,
       created_at: newestCreatedAt,
       translations: mergedTranslations,
       name: entry.name || translation.name,
@@ -867,12 +945,10 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       details: entry.details || translation.details || entry.reason,
       area_key: entry.area_key || item?.area_key || undefined,
       city_name: entry.city_name || item?.city_name || undefined,
-    });
+    };
   });
 
-  return Array.from(merged.values()).sort((a, b) => {
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
+  return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 };
 
 const findAreaOption = (areaKey?: string | null) => AREA_OPTIONS.find((item) => item.key === areaKey) || AREA_OPTIONS[0];
@@ -2111,13 +2187,47 @@ export default function App() {
 
       if (error) throw error;
 
-      const dbItems = mergeAiFavoriteItems(((data || []) as AiFavoriteRow[])
-        .map(mapAiFavoriteRowToItem)
-        .filter((item): item is AiFavoriteItem => !!item));
+      const rows = ((data || []) as AiFavoriteRow[]).filter((row) => !!mapAiFavoriteRowToItem(row));
+      const groups: Array<{ keepRow: AiFavoriteRow; rows: AiFavoriteRow[] }> = [];
+
+      rows.forEach((row) => {
+        const rowItem = mapAiFavoriteRowToItem(row);
+        if (!rowItem) return;
+        const existingGroup = groups.find((group) => {
+          const keepItem = mapAiFavoriteRowToItem(group.keepRow);
+          return keepItem ? areAiFavoritesEquivalent(keepItem, rowItem) : false;
+        });
+        if (existingGroup) {
+          existingGroup.rows.push(row);
+        } else {
+          groups.push({ keepRow: row, rows: [row] });
+        }
+      });
+
+      const dbItems = groups
+        .map((group) => mergeAiFavoriteItems(group.rows)[0])
+        .filter((item): item is AiFavoriteItem => !!item);
 
       if (dbItems.length > 0) {
         setAiFavorites(dbItems);
         persistLocal(dbItems);
+
+        const duplicateIds = groups.flatMap((group) => group.rows.slice(1).map((row) => row.id).filter(Boolean)) as string[];
+        if (duplicateIds.length > 0) {
+          try {
+            await Promise.all(groups.map(async (group) => {
+              if (group.rows.length <= 1 || !group.keepRow.id) return;
+              const mergedItem = mergeAiFavoriteItems(group.rows)[0];
+              if (!mergedItem) return;
+              const payload = mapAiFavoriteItemToRow(mergedItem, user.id);
+              const { id: _ignored, ...updatePayload } = payload as any;
+              await client.from(AI_FAVORITES_TABLE).update(updatePayload).eq('id', group.keepRow.id);
+            }));
+            await client.from(AI_FAVORITES_TABLE).delete().in('id', duplicateIds);
+          } catch (cleanupError) {
+            console.error('Failed to clean duplicate AI favorites:', cleanupError);
+          }
+        }
         return;
       }
 
@@ -2941,7 +3051,7 @@ export default function App() {
     try {
       const { error } = await client
         .from(AI_FAVORITES_TABLE)
-        .upsert(mapAiFavoriteItemToRow(item, user.id), { onConflict: 'user_id,favorite_key' });
+        .upsert(mapAiFavoriteItemToRow(item, user.id), { onConflict: 'user_id,canonical_key' });
 
       if (error) {
         console.error('Failed to persist AI favorite:', error);
@@ -2971,7 +3081,7 @@ export default function App() {
         .from(AI_FAVORITES_TABLE)
         .delete()
         .eq('user_id', user.id)
-        .eq('favorite_key', key);
+        .eq('canonical_key', key);
 
       if (error) {
         console.error('Failed to remove AI favorite:', error);
@@ -2997,15 +3107,22 @@ export default function App() {
       return;
     }
 
-    const normalizedRec = { ...rec, lat: normalized.lat, lng: normalized.lng };
-    const key = createAiFavoriteKey({
+    const normalizedRec = {
+      ...rec,
+      lat: normalized.lat,
+      lng: normalized.lng,
+      area_key: locationFilter.areaKey,
+      city_name: locationFilter.cityName || undefined,
+    };
+    const existingMatch = findMatchingAiFavoriteItem(aiFavorites, normalizedRec);
+    const key = existingMatch?.key || createAiFavoriteKey({
       name: normalizedRec.name,
       lat: normalizedRec.lat,
       lng: normalizedRec.lng,
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
     });
-    const exists = aiFavorites.some((item) => item.key === key);
+    const exists = Boolean(existingMatch);
     const favoriteItem: AiFavoriteItem = {
       key,
       name: normalizedRec.name,
@@ -3014,10 +3131,11 @@ export default function App() {
       details: normalizedRec.details || normalizedRec.reason,
       lat: normalizedRec.lat,
       lng: normalizedRec.lng,
-      created_at: new Date().toISOString(),
+      created_at: existingMatch?.created_at || new Date().toISOString(),
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
       translations: {
+        ...(existingMatch?.translations || {}),
         [locale]: {
           name: normalizedRec.name,
           reason: normalizedRec.reason,
@@ -3029,12 +3147,12 @@ export default function App() {
 
     const previous = aiFavorites;
     const next = exists
-      ? aiFavorites.filter((item) => item.key !== key)
+      ? aiFavorites.filter((item) => item.key !== existingMatch?.key)
       : mergeAiFavoriteItems([favoriteItem, ...aiFavorites]);
     setAiFavorites(next);
 
     const persisted = exists
-      ? await removeAiFavorite(key)
+      ? await removeAiFavorite(existingMatch!.key)
       : await upsertAiFavorite(favoriteItem);
 
     if (!persisted) {
@@ -3059,16 +3177,13 @@ export default function App() {
   };
 
 
-  const isAiRecommendationSaved = React.useCallback((rec?: { name?: string; lat: number; lng: number } | null) => {
+  const isAiRecommendationSaved = React.useCallback((rec?: { name?: string; lat: number; lng: number; category?: string } | null) => {
     if (!rec) return false;
-    const key = createAiFavoriteKey({
-      name: rec.name,
-      lat: rec.lat,
-      lng: rec.lng,
+    return Boolean(findMatchingAiFavoriteItem(aiFavorites, {
+      ...rec,
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
-    });
-    return aiFavorites.some((item) => item.key === key);
+    }));
   }, [aiFavorites, locationFilter.areaKey, locationFilter.cityName]);
 
   const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
@@ -3086,14 +3201,14 @@ export default function App() {
 
     const target = { lat: normalized.lat, lng: normalized.lng };
     recordAiMetric({ name: rec.name, category: rec.category || 'AI Recommendation', lat: normalized.lat, lng: normalized.lng, details: rec.details }, 'view');
-    const aiKey = createAiFavoriteKey({
+    const isSaved = Boolean(findMatchingAiFavoriteItem(aiFavorites, {
       name: rec.name,
       lat: target.lat,
       lng: target.lng,
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
-    });
-    const isSaved = aiFavorites.some((item) => item.key === aiKey);
+      category: rec.category,
+    }));
     setTempAiPin(isSaved ? null : { ...target, name: rec.name });
     focusMapOnCoords(target);
   };
@@ -4245,13 +4360,13 @@ export default function App() {
                                         onClick={() => handleSaveAiRecommendation(rec)}
                                         className={cn(
                                           "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
-                                          aiFavorites.some((item) => item.key === createAiFavoriteKey({ name: rec.name, lat: rec.lat, lng: rec.lng, area_key: locationFilter.areaKey, city_name: locationFilter.cityName || undefined }))
+                                          isAiRecommendationSaved(rec)
                                             ? "border-rose-200 bg-rose-50 text-rose-500"
                                             : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
                                         )}
                                         title={t('saveAi')}
                                       >
-                                        <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey({ name: rec.name, lat: rec.lat, lng: rec.lng, area_key: locationFilter.areaKey, city_name: locationFilter.cityName || undefined })) && "fill-current")} />
+                                        <Heart className={cn("w-4 h-4", isAiRecommendationSaved(rec) && "fill-current")} />
                                       </button>
                                     </div>
                                   </motion.div>
@@ -4798,13 +4913,22 @@ export default function App() {
                                   <div className="text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">{localized.category}</div>
                                   <div className="mt-1 text-lg font-black tracking-tight text-black">{localized.name}</div>
                                 </div>
-                                <button
-                                  onClick={() => handleAiViewOnMap({ name: localized.name, lat: item.lat, lng: item.lng })}
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600 hover:border-black hover:text-black transition-all"
-                                >
-                                  <MapPinned className="w-4 h-4" />
-                                  MAP
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleSaveAiRecommendation(item)}
+                                    className="inline-flex items-center justify-center w-11 h-11 rounded-full border border-rose-200 bg-rose-50 text-rose-500 hover:border-rose-300 hover:bg-rose-100 transition-all"
+                                    title={locale === 'jp' ? 'AI保存から削除' : 'Remove from AI saves'}
+                                  >
+                                    <Heart className="w-4 h-4 fill-current" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleAiViewOnMap({ name: localized.name, lat: item.lat, lng: item.lng, category: localized.category })}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600 hover:border-black hover:text-black transition-all"
+                                  >
+                                    <MapPinned className="w-4 h-4" />
+                                    MAP
+                                  </button>
+                                </div>
                               </div>
                               <p className="text-sm leading-relaxed text-stone-600">{localized.reason}</p>
                             </div>
