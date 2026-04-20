@@ -339,6 +339,9 @@ interface ShortFeedItem {
   url: string;
   embedUrl: string;
   imageUrl?: string;
+  address?: string;
+  hours?: string;
+  websiteUrl?: string;
 }
 
 type Locale = "jp" | "en";
@@ -368,6 +371,17 @@ const createAiFavoriteKey = (rec: { lat: number; lng: number }) => {
 };
 
 const containsJapanese = (value: string) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(value);
+
+const formatWebsiteLabel = (url?: string) => {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.replace(/\/$/, '');
+    return `${parsed.hostname.replace(/^www\./, '')}${pathname && pathname !== '/' ? pathname : ''}`;
+  } catch {
+    return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  }
+};
 
 const guessAiFavoriteLocale = (item: { name?: string; reason?: string; category?: string }): Locale => {
   const sample = `${item.name || ''} ${item.reason || ''} ${item.category || ''}`;
@@ -2174,6 +2188,9 @@ export default function App() {
           url,
           embedUrl,
           imageUrl: place.image_url,
+          address: place.address || [place.municipality, place.prefecture, place.country].filter(Boolean).join(', '),
+          hours: place.hours,
+          websiteUrl: place.website_url,
         });
       });
     });
@@ -3186,7 +3203,7 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto bg-black text-white pb-28 snap-y snap-mandatory"
+              className="h-full overflow-y-auto bg-black text-white pb-40 md:pb-44 snap-y snap-mandatory"
             >
               {shortsFeed.length === 0 ? (
                 <div className="h-full flex items-center justify-center px-6">
@@ -3199,36 +3216,90 @@ export default function App() {
               ) : (
                 shortsFeed.map((item) => {
                   const isPlaceFav = favorites.some((f) => f.place_id === item.placeId);
+                  const websiteLabel = formatWebsiteLabel(item.websiteUrl);
+                  const addressLabel = locale === 'jp' ? '住所' : 'Address';
+                  const hoursLabel = locale === 'jp' ? '営業時間' : 'Hours';
+                  const websiteText = locale === 'jp' ? '公式サイト' : 'Official Site';
+                  const addressValue = item.address || (locale === 'jp' ? '住所情報はまだ登録されていません。' : 'Address details have not been added yet.');
+                  const hoursValue = item.hours || (locale === 'jp' ? '営業時間は未登録です。' : 'Hours have not been added yet.');
+                  const descriptionValue = item.description || (locale === 'jp' ? 'このSpotに登録されたショート動画です。' : 'A short video registered for this spot.');
+
                   return (
-                    <section key={item.id} className="min-h-full snap-start flex items-center justify-center p-4 md:p-8">
-                      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-[minmax(320px,460px)_1fr] gap-6 items-center">
-                        <div className="relative mx-auto w-full max-w-[420px] aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
-                          <iframe
-                            src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
-                            title={`${item.placeName} short`}
-                            className="w-full h-full"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            referrerPolicy="strict-origin-when-cross-origin"
-                            allowFullScreen
-                          />
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black via-black/70 to-transparent" />
-                          <div className="absolute inset-x-0 bottom-0 p-5 space-y-2">
-                            <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/60">{item.category}</div>
-                            <h3 className="text-2xl font-black leading-tight">{item.placeName}</h3>
-                            {item.description && (
-                              <p className="text-sm text-white/70 line-clamp-3">{item.description}</p>
-                            )}
+                    <section key={item.id} className="min-h-full snap-start px-4 pt-6 pb-36 md:px-8 md:pt-8 md:pb-40 flex items-center">
+                      <div className="w-full max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[minmax(300px,420px)_minmax(0,1fr)] gap-6 xl:gap-10 items-center">
+                        <div className="w-full max-w-[420px] mx-auto xl:mx-0">
+                          <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
+                            <iframe
+                              src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
+                              title={`${item.placeName} short`}
+                              className="w-full h-full"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              referrerPolicy="strict-origin-when-cross-origin"
+                              allowFullScreen
+                            />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent" />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 p-5 space-y-1.5">
+                              <div className="inline-flex items-center rounded-full border border-white/15 bg-black/35 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.28em] text-white/70 backdrop-blur-sm">
+                                {item.category}
+                              </div>
+                              <h3 className="text-xl md:text-2xl font-black leading-tight text-white">{item.placeName}</h3>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="space-y-6 lg:pr-8">
+                        <div className="space-y-5 xl:pr-6">
                           <div className="space-y-3">
-                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/45">MILZ SHORTS</p>
-                            <h2 className="text-4xl md:text-6xl font-black leading-[0.95] tracking-tight">{item.placeName}</h2>
-                            <p className="text-sm md:text-base text-white/65 max-w-xl leading-relaxed">{item.description || (locale === 'jp' ? 'このSpotに登録されたショート動画です。' : 'A short video registered for this spot.')}</p>
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.32em] text-white/45">
+                              <span>MILZ SHORTS</span>
+                              <span className="h-1 w-1 rounded-full bg-white/25" />
+                              <span>{item.category}</span>
+                            </div>
+                            <h2 className="text-3xl md:text-5xl xl:text-6xl font-black leading-[0.94] tracking-tight">{item.placeName}</h2>
+                            <p className="max-w-2xl text-sm md:text-base leading-relaxed text-white/68">{descriptionValue}</p>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3">
+                              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
+                                <MapPin className="w-4 h-4" />
+                                {addressLabel}
+                              </div>
+                              <p className="text-sm md:text-base font-semibold leading-relaxed text-white/88 break-words">{addressValue}</p>
+                            </div>
+
+                            <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 space-y-3">
+                              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
+                                <Clock className="w-4 h-4" />
+                                {hoursLabel}
+                              </div>
+                              <p className="text-sm md:text-base font-semibold leading-relaxed text-white/88 whitespace-pre-line">{hoursValue}</p>
+                            </div>
+
+                            <div className="md:col-span-2 rounded-[1.75rem] border border-white/10 bg-white/[0.04] backdrop-blur-sm p-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                              <div className="space-y-2 min-w-0">
+                                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.28em] text-white/45">
+                                  <Globe className="w-4 h-4" />
+                                  {websiteText}
+                                </div>
+                                <p className="text-sm md:text-base font-semibold text-white/88 break-all">
+                                  {websiteLabel || (locale === 'jp' ? '未登録' : 'Not added yet')}
+                                </p>
+                              </div>
+                              {item.websiteUrl ? (
+                                <a
+                                  href={item.websiteUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-white/15 text-[10px] font-black uppercase tracking-[0.22em] text-white hover:border-white/40 hover:bg-white/5 transition-all"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                  {websiteText}
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 pt-1">
                             <button
                               onClick={() => handleToggleFavorite(item.placeId)}
                               className={cn(

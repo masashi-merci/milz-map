@@ -445,8 +445,9 @@ export default function TokyoMiniatureMap({
         map.on('moveend', syncBounds);
 
         map.on('click', (event: any) => {
-          if (roleRef.current === 'admin' && activeTabRef.current === 'map' && isAddingRef.current) {
+          if (roleRef.current === 'admin' && activeTabRef.current === 'map') {
             setNewPlacePos({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+            setIsAdding(true);
           }
         });
       })
