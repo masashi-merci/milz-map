@@ -720,6 +720,24 @@ const createLocationFilterFromArea = (areaKey: string, cityName?: string) => {
   };
 };
 
+const inferAreaKeyFromCoords = (lat?: number | null, lng?: number | null) => {
+  const normalized = normalizeMapCoords(lat, lng);
+  if (!normalized) return undefined;
+
+  let nearest = AREA_OPTIONS[0];
+  let nearestScore = Number.POSITIVE_INFINITY;
+
+  AREA_OPTIONS.forEach((area) => {
+    const score = Math.pow(normalized.lat - area.center[0], 2) + Math.pow(normalized.lng - area.center[1], 2);
+    if (score < nearestScore) {
+      nearest = area;
+      nearestScore = score;
+    }
+  });
+
+  return nearest?.key;
+};
+
 const inferAreaKeyFromText = (value?: string | null) => {
   const haystack = (value || '').toLowerCase();
   if (!haystack) return '';
@@ -1059,6 +1077,7 @@ export default function App() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
   const [aiResultsLocale, setAiResultsLocale] = useState<Locale | null>(null);
+  const [aiResultsLocationKey, setAiResultsLocationKey] = useState<string>('tokyo::Shibuya');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showSqlModal, setShowSqlModal] = useState(false);
@@ -2418,17 +2437,23 @@ export default function App() {
   const fetchAiLeaderboard = React.useCallback(async (areaKey?: string, cityName?: string, fallbackItems?: AIResults['recommendations']) => {
     const targetAreaKey = areaKey || locationFilter.areaKey;
     const targetCityName = cityName || locationFilter.cityName;
-    const fallbackList = fallbackItems || aiResults?.recommendations || [];
+    const fallbackList = fallbackItems || [];
     const fallbackMap = new Map(fallbackList.map((item) => [createAiFavoriteKey(item), item]));
     const merged = new Map<string, AiRecommendationMetric>();
 
     const addRow = (row: Partial<AiRecommendationMetric> & { recommendation_name: string; lat: number; lng: number }) => {
       const key = createAiFavoriteKey({ lat: row.lat, lng: row.lng });
+      const inferredAreaKey = inferAreaKeyFromCoords(row.lat, row.lng);
+      const canonicalAreaKey = inferredAreaKey || row.area_key || targetAreaKey;
+      const canonicalCityName = row.city_name ?? null;
+      if (canonicalAreaKey !== targetAreaKey) return;
+      if (targetCityName && canonicalCityName && canonicalCityName !== targetCityName) return;
+
       const existing = merged.get(key);
       const next: AiRecommendationMetric = {
         id: existing?.id || row.id || key,
-        area_key: row.area_key || existing?.area_key || targetAreaKey,
-        city_name: row.city_name ?? existing?.city_name ?? targetCityName ?? null,
+        area_key: canonicalAreaKey,
+        city_name: canonicalCityName ?? existing?.city_name ?? targetCityName ?? null,
         recommendation_name: row.recommendation_name,
         category: row.category || existing?.category || 'AI Recommendation',
         lat: row.lat,
@@ -2465,11 +2490,12 @@ export default function App() {
 
     aiFavorites.forEach((item) => {
       const fallbackMatch = fallbackMap.get(item.key);
-      const areaMatches = item.area_key
-        ? item.area_key === targetAreaKey
-        : Boolean(fallbackMatch);
+      const inferredAreaKey = inferAreaKeyFromCoords(item.lat, item.lng);
+      const canonicalAreaKey = inferredAreaKey || item.area_key || (fallbackMatch ? targetAreaKey : undefined);
+      const canonicalCityName = item.city_name || (fallbackMatch ? targetCityName : undefined);
+      const areaMatches = canonicalAreaKey === targetAreaKey;
       const cityMatches = targetCityName
-        ? (item.city_name ? item.city_name === targetCityName : Boolean(fallbackMatch))
+        ? (canonicalCityName ? canonicalCityName === targetCityName : Boolean(fallbackMatch))
         : true;
 
       if (!areaMatches || !cityMatches) return;
@@ -2482,8 +2508,8 @@ export default function App() {
         details: getAiFavoriteDisplay(item, locale).details || getAiFavoriteDisplay(item, locale).reason,
         favorite_count: (merged.get(item.key)?.favorite_count || 0) + 1,
         view_count: merged.get(item.key)?.view_count || 0,
-        area_key: item.area_key || targetAreaKey,
-        city_name: item.city_name || targetCityName || null,
+        area_key: canonicalAreaKey || targetAreaKey,
+        city_name: canonicalCityName || targetCityName || null,
       });
     });
 
@@ -2719,6 +2745,7 @@ export default function App() {
             console.log(`Using cached ${type} for ${locationStr} (${locale})`);
             setAiResults(cacheData.data);
             setAiResultsLocale(locale);
+            setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
             fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cacheData.data?.recommendations || []);
             setAiLoading(false);
             return;
@@ -2775,6 +2802,7 @@ export default function App() {
       const results = JSON.parse(response.text);
       setAiResults(results);
       setAiResultsLocale(locale);
+      setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
       fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, results.recommendations || []);
 
       // 3. 結果をキャッシュに保存（upsert）
@@ -2800,10 +2828,12 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab !== 'ai') return;
-    fetchAiLeaderboard(locationFilter.areaKey, locationFilter.cityName, aiResults?.recommendations || []);
+    const currentAiLocationKey = `${locationFilter.areaKey}::${locationFilter.cityName || 'all'}`;
+    const leaderboardFallback = aiResultsLocationKey === currentAiLocationKey ? (aiResults?.recommendations || []) : [];
+    fetchAiLeaderboard(locationFilter.areaKey, locationFilter.cityName, leaderboardFallback);
     if (!aiResults || !aiResultsLocale || aiResultsLocale === locale || aiLoading) return;
     handleAiRecommend();
-  }, [activeTab, locale, locationFilter.areaKey, locationFilter.cityName, aiResults, aiResultsLocale, aiLoading, fetchAiLeaderboard]);
+  }, [activeTab, locale, locationFilter.areaKey, locationFilter.cityName, aiResults, aiResultsLocale, aiResultsLocationKey, aiLoading, fetchAiLeaderboard]);
 
   const filteredPlaces = useMemo(() => {
     return places.filter((p) => {
@@ -3785,10 +3815,6 @@ export default function App() {
                                     <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">Top {index + 1}</div>
                                     <div className="mt-2 text-base font-black text-black leading-snug">{item.recommendation_name}</div>
                                     <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.18em] text-stone-400">{item.category}</div>
-                                  </div>
-                                  <div className="text-right text-[10px] font-black uppercase tracking-[0.16em] text-stone-400">
-                                    <div>{item.favorite_count || 0} fav</div>
-                                    <div>{item.view_count || 0} views</div>
                                   </div>
                                 </div>
                               </button>
