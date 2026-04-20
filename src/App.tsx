@@ -431,6 +431,23 @@ interface AiFavoriteItem {
   city_name?: string;
 }
 
+interface AiFavoriteRow {
+  id?: string;
+  user_id: string;
+  favorite_key: string;
+  name: string;
+  reason: string;
+  category: string;
+  details?: string | null;
+  lat: number;
+  lng: number;
+  area_key?: string | null;
+  city_name?: string | null;
+  translations?: Partial<Record<Locale, AiFavoriteTranslation>> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 
 interface ShortFeedItem {
   id: string;
@@ -452,6 +469,7 @@ type Locale = "jp" | "en";
 
 const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
 const AUTH_METADATA_AI_FAVORITES_KEY = "milz_ai_favorites";
+const AI_FAVORITES_TABLE = "ai_favorites";
 
 type FilterOptionKind = 'category' | 'badge';
 
@@ -688,11 +706,25 @@ const normalizeMapCoords = (latInput: number | string, lngInput: number | string
   return { lat, lng };
 };
 
-const createAiFavoriteKey = (rec: { lat: number; lng: number }) => {
+const createAiFavoriteSlug = (value?: string | null) => {
+  const normalized = (value || '')
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/['’`´]/g, '')
+    .replace(/[\s\-‐‑‒–—―_/.,()【】「」『』·・]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return normalized || 'spot';
+};
+
+const createAiFavoriteKey = (rec: { lat: number; lng: number; name?: string; area_key?: string; city_name?: string }) => {
   const normalized = normalizeMapCoords(rec.lat, rec.lng);
   const lat = normalized?.lat ?? Number(rec.lat) ?? 0;
   const lng = normalized?.lng ?? Number(rec.lng) ?? 0;
-  return `ai::${lat.toFixed(5)}::${lng.toFixed(5)}`;
+  const areaKey = rec.area_key || inferAreaKeyFromCoords(lat, lng) || 'unknown';
+  const cityKey = createAiFavoriteSlug(rec.city_name || 'all');
+  const nameKey = createAiFavoriteSlug(rec.name || 'spot');
+  return `ai::${areaKey}::${cityKey}::${nameKey}::${lat.toFixed(4)}::${lng.toFixed(4)}`;
 };
 
 const containsJapanese = (value: string) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(value);
@@ -728,6 +760,49 @@ const getAiFavoriteDisplay = (item: AiFavoriteItem, locale: Locale): AiFavoriteT
   };
 };
 
+const mapAiFavoriteRowToItem = (row: Partial<AiFavoriteRow>): AiFavoriteItem | null => {
+  if (!row?.name) return null;
+  const normalized = normalizeMapCoords(row.lat as number, row.lng as number);
+  if (!normalized) return null;
+
+  const key = row.favorite_key || createAiFavoriteKey({
+    name: row.name,
+    lat: normalized.lat,
+    lng: normalized.lng,
+    area_key: row.area_key || undefined,
+    city_name: row.city_name || undefined,
+  });
+
+  return {
+    key,
+    name: row.name,
+    reason: row.reason || '',
+    category: row.category || 'AI Recommendation',
+    lat: normalized.lat,
+    lng: normalized.lng,
+    created_at: row.created_at || new Date().toISOString(),
+    details: row.details || row.reason || '',
+    area_key: row.area_key || undefined,
+    city_name: row.city_name || undefined,
+    translations: row.translations || undefined,
+  };
+};
+
+const mapAiFavoriteItemToRow = (item: AiFavoriteItem, userId: string): AiFavoriteRow => ({
+  user_id: userId,
+  favorite_key: item.key,
+  name: item.name,
+  reason: item.reason,
+  category: item.category,
+  details: item.details || item.reason,
+  lat: item.lat,
+  lng: item.lng,
+  area_key: item.area_key || null,
+  city_name: item.city_name || null,
+  translations: item.translations || null,
+  created_at: item.created_at,
+});
+
 const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
   const merged = new Map<string, AiFavoriteItem>();
 
@@ -735,7 +810,13 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
     const normalized = normalizeMapCoords(item?.lat, item?.lng);
     if (!normalized || !item?.name) return;
 
-    const key = createAiFavoriteKey({ lat: normalized.lat, lng: normalized.lng });
+    const key = item?.favorite_key || createAiFavoriteKey({
+      name: item?.name,
+      lat: normalized.lat,
+      lng: normalized.lng,
+      area_key: item?.area_key || undefined,
+      city_name: item?.city_name || undefined,
+    });
     const itemLocale = guessAiFavoriteLocale(item);
     const entry = merged.get(key);
 
@@ -937,7 +1018,7 @@ const buildAiLocationCardImage = ({
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };
 
-const createAiRecommendationVisualKey = (rec: AiRecommendationItem, index: number) => `${createAiFavoriteKey(rec)}::${index}`;
+const createAiRecommendationVisualKey = (rec: AiRecommendationItem, index: number) => `${createAiFavoriteKey({ name: rec.name, lat: rec.lat, lng: rec.lng })}::${index}`;
 
 const uiCopy: Record<Locale, Record<string, string>> = {
   jp: {
@@ -1979,71 +2060,103 @@ export default function App() {
     };
   }, [user, isConfigMissing, fetchFavorites]);
 
-  useEffect(() => {
+  const fetchAiFavorites = React.useCallback(async () => {
     if (!user?.id) {
       setAiFavorites([]);
       return;
     }
 
-    let isCancelled = false;
+    const storageKey = `${AI_FAVORITES_STORAGE_PREFIX}${user.id}`;
+    const client = getSupabase();
 
-    const loadAiFavorites = async () => {
+    const persistLocal = (items: AiFavoriteItem[]) => {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKey, JSON.stringify(items));
+      }
+    };
+
+    const readLegacyItems = () => {
       const metadataItems = Array.isArray(user?.user_metadata?.[AUTH_METADATA_AI_FAVORITES_KEY])
         ? mergeAiFavoriteItems(user.user_metadata[AUTH_METADATA_AI_FAVORITES_KEY])
         : [];
+      if (metadataItems.length > 0) return metadataItems;
 
-      if (metadataItems.length > 0) {
-        if (!isCancelled) setAiFavorites(metadataItems);
-        window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(metadataItems));
+      if (typeof window === 'undefined') return [] as AiFavoriteItem[];
+
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) return [] as AiFavoriteItem[];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [] as AiFavoriteItem[];
+        return mergeAiFavoriteItems(parsed);
+      } catch (error) {
+        console.error('Failed to parse legacy AI favorites:', error);
+        return [] as AiFavoriteItem[];
+      }
+    };
+
+    if (!client) {
+      const fallbackItems = readLegacyItems();
+      setAiFavorites(fallbackItems);
+      persistLocal(fallbackItems);
+      return;
+    }
+
+    try {
+      const { data, error } = await client
+        .from(AI_FAVORITES_TABLE)
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const dbItems = mergeAiFavoriteItems(((data || []) as AiFavoriteRow[])
+        .map(mapAiFavoriteRowToItem)
+        .filter((item): item is AiFavoriteItem => !!item));
+
+      if (dbItems.length > 0) {
+        setAiFavorites(dbItems);
+        persistLocal(dbItems);
         return;
       }
 
-      try {
-        const raw = window.localStorage.getItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`);
-        if (!raw) {
-          if (!isCancelled) setAiFavorites([]);
-          return;
+      const legacyItems = readLegacyItems();
+      setAiFavorites(legacyItems);
+      persistLocal(legacyItems);
+
+      if (legacyItems.length > 0) {
+        const payload = legacyItems.map((item) => mapAiFavoriteItemToRow(item, user.id));
+        const { error: migrateError } = await client
+          .from(AI_FAVORITES_TABLE)
+          .upsert(payload, { onConflict: 'user_id,favorite_key' });
+
+        if (migrateError) {
+          console.error('Failed to migrate legacy AI favorites into ai_favorites:', migrateError);
         }
-
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-          if (!isCancelled) setAiFavorites([]);
-          return;
-        }
-
-        const normalizedItems = mergeAiFavoriteItems(parsed);
-        if (!isCancelled) setAiFavorites(normalizedItems);
-        window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(normalizedItems));
-
-        if (normalizedItems.length > 0) {
-          const client = getSupabase();
-          if (client) {
-            const { data, error } = await client.auth.updateUser({
-              data: {
-                ...(user.user_metadata || {}),
-                [AUTH_METADATA_AI_FAVORITES_KEY]: normalizedItems,
-              },
-            });
-
-            if (error) {
-              console.error('Failed to migrate AI favorites into Supabase auth metadata:', error);
-            } else if (data.user && !isCancelled) {
-              setUser(data.user);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load AI favorites:', error);
-        if (!isCancelled) setAiFavorites([]);
       }
-    };
+    } catch (error) {
+      console.error('Failed to load AI favorites:', error);
+      const fallbackItems = readLegacyItems();
+      setAiFavorites(fallbackItems);
+      persistLocal(fallbackItems);
+    }
+  }, [user]);
 
-    loadAiFavorites();
+  useEffect(() => {
+    fetchAiFavorites();
+
+    const client = getSupabase();
+    if (!client || !user?.id) return;
+    const channel = client
+      .channel(`ai_favorites_changes_${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: AI_FAVORITES_TABLE, filter: `user_id=eq.${user.id}` }, fetchAiFavorites)
+      .subscribe();
 
     return () => {
-      isCancelled = true;
+      client.removeChannel(channel);
     };
-  }, [user]);
+  }, [user?.id, fetchAiFavorites]);
 
   const handleLogin = async () => {
     setAuthError('');
@@ -2670,7 +2783,13 @@ export default function App() {
     const targetAreaKey = areaKey || locationFilter.areaKey;
     const targetCityName = cityName || locationFilter.cityName;
     const fallbackList = fallbackItems || [];
-    const fallbackMap = new Map(fallbackList.map((item) => [createAiFavoriteKey(item), item]));
+    const fallbackMap = new Map(fallbackList.map((item) => [createAiFavoriteKey({
+      name: item.name,
+      lat: item.lat,
+      lng: item.lng,
+      area_key: targetAreaKey,
+      city_name: targetCityName || undefined,
+    }), item]));
     const merged = new Map<string, AiRecommendationMetric>();
 
     const addRow = (row: Partial<AiRecommendationMetric> & { recommendation_name: string; lat: number; lng: number }) => {
@@ -2808,39 +2927,63 @@ export default function App() {
     }
   }, [fetchAiLeaderboard, locationFilter.areaKey, locationFilter.cityName]);
 
-  const persistAiFavorites = React.useCallback(async (next: AiFavoriteItem[]) => {
+  const upsertAiFavorite = React.useCallback(async (item: AiFavoriteItem) => {
     if (!user?.id) return false;
 
+    const nextLocal = mergeAiFavoriteItems([item, ...aiFavorites.filter((existing) => existing.key !== item.key)]);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
+      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(nextLocal));
     }
 
     const client = getSupabase();
     if (!client) return true;
 
     try {
-      const { data, error } = await client.auth.updateUser({
-        data: {
-          ...(user.user_metadata || {}),
-          [AUTH_METADATA_AI_FAVORITES_KEY]: next,
-        },
-      });
+      const { error } = await client
+        .from(AI_FAVORITES_TABLE)
+        .upsert(mapAiFavoriteItemToRow(item, user.id), { onConflict: 'user_id,favorite_key' });
 
       if (error) {
-        console.error('Failed to persist AI favorites:', error);
-        return true;
-      }
-
-      if (data.user) {
-        setUser(data.user);
+        console.error('Failed to persist AI favorite:', error);
+        return false;
       }
     } catch (error) {
-      console.error('Failed to persist AI favorites:', error);
-      return true;
+      console.error('Failed to persist AI favorite:', error);
+      return false;
     }
 
     return true;
-  }, [user]);
+  }, [aiFavorites, user?.id]);
+
+  const removeAiFavorite = React.useCallback(async (key: string) => {
+    if (!user?.id) return false;
+
+    const nextLocal = aiFavorites.filter((item) => item.key !== key);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(nextLocal));
+    }
+
+    const client = getSupabase();
+    if (!client) return true;
+
+    try {
+      const { error } = await client
+        .from(AI_FAVORITES_TABLE)
+        .delete()
+        .eq('user_id', user.id)
+        .eq('favorite_key', key);
+
+      if (error) {
+        console.error('Failed to remove AI favorite:', error);
+        return false;
+      }
+    } catch (error) {
+      console.error('Failed to remove AI favorite:', error);
+      return false;
+    }
+
+    return true;
+  }, [aiFavorites, user?.id]);
 
   const handleSaveAiRecommendation = async (rec: { name: string; reason: string; details?: string; category: string; lat: number; lng: number }) => {
     if (!user) {
@@ -2855,38 +2998,45 @@ export default function App() {
     }
 
     const normalizedRec = { ...rec, lat: normalized.lat, lng: normalized.lng };
-    const key = createAiFavoriteKey(normalizedRec);
+    const key = createAiFavoriteKey({
+      name: normalizedRec.name,
+      lat: normalizedRec.lat,
+      lng: normalizedRec.lng,
+      area_key: locationFilter.areaKey,
+      city_name: locationFilter.cityName || undefined,
+    });
     const exists = aiFavorites.some((item) => item.key === key);
-    const next = exists
-      ? aiFavorites.filter((item) => item.key !== key)
-      : mergeAiFavoriteItems([
-          {
-            key,
-            name: normalizedRec.name,
-            reason: normalizedRec.reason,
-            category: normalizedRec.category,
-            details: normalizedRec.details || normalizedRec.reason,
-            lat: normalizedRec.lat,
-            lng: normalizedRec.lng,
-            created_at: new Date().toISOString(),
-            area_key: locationFilter.areaKey,
-            city_name: locationFilter.cityName || undefined,
-            translations: {
-              [locale]: {
-                name: normalizedRec.name,
-                reason: normalizedRec.reason,
-                details: normalizedRec.details || normalizedRec.reason,
-                category: normalizedRec.category,
-              },
-            },
-          },
-          ...aiFavorites,
-        ]);
+    const favoriteItem: AiFavoriteItem = {
+      key,
+      name: normalizedRec.name,
+      reason: normalizedRec.reason,
+      category: normalizedRec.category,
+      details: normalizedRec.details || normalizedRec.reason,
+      lat: normalizedRec.lat,
+      lng: normalizedRec.lng,
+      created_at: new Date().toISOString(),
+      area_key: locationFilter.areaKey,
+      city_name: locationFilter.cityName || undefined,
+      translations: {
+        [locale]: {
+          name: normalizedRec.name,
+          reason: normalizedRec.reason,
+          details: normalizedRec.details || normalizedRec.reason,
+          category: normalizedRec.category,
+        },
+      },
+    };
 
     const previous = aiFavorites;
+    const next = exists
+      ? aiFavorites.filter((item) => item.key !== key)
+      : mergeAiFavoriteItems([favoriteItem, ...aiFavorites]);
     setAiFavorites(next);
 
-    const persisted = await persistAiFavorites(next);
+    const persisted = exists
+      ? await removeAiFavorite(key)
+      : await upsertAiFavorite(favoriteItem);
+
     if (!persisted) {
       setAiFavorites(previous);
       if (typeof window !== 'undefined' && user?.id) {
@@ -2909,11 +3059,17 @@ export default function App() {
   };
 
 
-  const isAiRecommendationSaved = React.useCallback((rec?: { lat: number; lng: number } | null) => {
+  const isAiRecommendationSaved = React.useCallback((rec?: { name?: string; lat: number; lng: number } | null) => {
     if (!rec) return false;
-    const key = createAiFavoriteKey(rec);
+    const key = createAiFavoriteKey({
+      name: rec.name,
+      lat: rec.lat,
+      lng: rec.lng,
+      area_key: locationFilter.areaKey,
+      city_name: locationFilter.cityName || undefined,
+    });
     return aiFavorites.some((item) => item.key === key);
-  }, [aiFavorites]);
+  }, [aiFavorites, locationFilter.areaKey, locationFilter.cityName]);
 
   const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
     setPendingMapFocus(coords);
@@ -2930,7 +3086,13 @@ export default function App() {
 
     const target = { lat: normalized.lat, lng: normalized.lng };
     recordAiMetric({ name: rec.name, category: rec.category || 'AI Recommendation', lat: normalized.lat, lng: normalized.lng, details: rec.details }, 'view');
-    const aiKey = createAiFavoriteKey(target);
+    const aiKey = createAiFavoriteKey({
+      name: rec.name,
+      lat: target.lat,
+      lng: target.lng,
+      area_key: locationFilter.areaKey,
+      city_name: locationFilter.cityName || undefined,
+    });
     const isSaved = aiFavorites.some((item) => item.key === aiKey);
     setTempAiPin(isSaved ? null : { ...target, name: rec.name });
     focusMapOnCoords(target);
@@ -4083,13 +4245,13 @@ export default function App() {
                                         onClick={() => handleSaveAiRecommendation(rec)}
                                         className={cn(
                                           "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
-                                          aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng }))
+                                          aiFavorites.some((item) => item.key === createAiFavoriteKey({ name: rec.name, lat: rec.lat, lng: rec.lng, area_key: locationFilter.areaKey, city_name: locationFilter.cityName || undefined }))
                                             ? "border-rose-200 bg-rose-50 text-rose-500"
                                             : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
                                         )}
                                         title={t('saveAi')}
                                       >
-                                        <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng })) && "fill-current")} />
+                                        <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey({ name: rec.name, lat: rec.lat, lng: rec.lng, area_key: locationFilter.areaKey, city_name: locationFilter.cityName || undefined })) && "fill-current")} />
                                       </button>
                                     </div>
                                   </motion.div>
