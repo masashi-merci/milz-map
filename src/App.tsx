@@ -347,6 +347,7 @@ interface ShortFeedItem {
 type Locale = "jp" | "en";
 
 const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
+const AUTH_METADATA_AI_FAVORITES_KEY = "milz_ai_favorites";
 
 const normalizeMapCoords = (latInput: number | string, lngInput: number | string) => {
   let lat = Number(latInput);
@@ -1300,28 +1301,65 @@ export default function App() {
       return;
     }
 
-    try {
-      const raw = window.localStorage.getItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`);
-      if (!raw) {
-        setAiFavorites([]);
+    let isCancelled = false;
+
+    const loadAiFavorites = async () => {
+      const metadataItems = Array.isArray(user?.user_metadata?.[AUTH_METADATA_AI_FAVORITES_KEY])
+        ? mergeAiFavoriteItems(user.user_metadata[AUTH_METADATA_AI_FAVORITES_KEY])
+        : [];
+
+      if (metadataItems.length > 0) {
+        if (!isCancelled) setAiFavorites(metadataItems);
+        window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(metadataItems));
         return;
       }
 
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setAiFavorites([]);
-        return;
+      try {
+        const raw = window.localStorage.getItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`);
+        if (!raw) {
+          if (!isCancelled) setAiFavorites([]);
+          return;
+        }
+
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          if (!isCancelled) setAiFavorites([]);
+          return;
+        }
+
+        const normalizedItems = mergeAiFavoriteItems(parsed);
+        if (!isCancelled) setAiFavorites(normalizedItems);
+        window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(normalizedItems));
+
+        if (normalizedItems.length > 0) {
+          const client = getSupabase();
+          if (client) {
+            const { data, error } = await client.auth.updateUser({
+              data: {
+                ...(user.user_metadata || {}),
+                [AUTH_METADATA_AI_FAVORITES_KEY]: normalizedItems,
+              },
+            });
+
+            if (error) {
+              console.error('Failed to migrate AI favorites into Supabase auth metadata:', error);
+            } else if (data.user && !isCancelled) {
+              setUser(data.user);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load AI favorites:', error);
+        if (!isCancelled) setAiFavorites([]);
       }
+    };
 
-      const normalizedItems = mergeAiFavoriteItems(parsed);
+    loadAiFavorites();
 
-      setAiFavorites(normalizedItems);
-      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(normalizedItems));
-    } catch (error) {
-      console.error('Failed to load AI favorites:', error);
-      setAiFavorites([]);
-    }
-  }, [user?.id]);
+    return () => {
+      isCancelled = true;
+    };
+  }, [user]);
 
   const handleLogin = async () => {
     setAuthError('');
@@ -1883,6 +1921,35 @@ export default function App() {
     }
   };
 
+  const persistAiFavorites = React.useCallback(async (next: AiFavoriteItem[]) => {
+    if (!user?.id) return false;
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
+    }
+
+    const client = getSupabase();
+    if (!client) return false;
+
+    const { data, error } = await client.auth.updateUser({
+      data: {
+        ...(user.user_metadata || {}),
+        [AUTH_METADATA_AI_FAVORITES_KEY]: next,
+      },
+    });
+
+    if (error) {
+      console.error('Failed to persist AI favorites:', error);
+      return false;
+    }
+
+    if (data.user) {
+      setUser(data.user);
+    }
+
+    return true;
+  }, [user]);
+
   const handleSaveAiRecommendation = async (rec: { name: string; reason: string; category: string; lat: number; lng: number }) => {
     if (!user) {
       showToast(locale === 'jp' ? 'ログインが必要です。' : 'Please sign in first.', 'error');
@@ -1920,10 +1987,17 @@ export default function App() {
           ...aiFavorites,
         ]);
 
+    const previous = aiFavorites;
     setAiFavorites(next);
 
-    if (typeof window !== 'undefined' && user?.id) {
-      window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(next));
+    const persisted = await persistAiFavorites(next);
+    if (!persisted) {
+      setAiFavorites(previous);
+      if (typeof window !== 'undefined' && user?.id) {
+        window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(previous));
+      }
+      showToast(locale === 'jp' ? 'AIお気に入りの保存に失敗しました。' : 'Failed to save the AI favorite.', 'error');
+      return;
     }
 
     showToast(
@@ -2218,7 +2292,7 @@ export default function App() {
           </div>
           <div className="p-8 bg-stone-50 text-left space-y-4 border border-stone-200">
             <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">必要な環境変数:</p>
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3 text-center xl:text-left">
               <code className="block text-xs font-mono text-stone-600 bg-white p-4 border border-stone-100">VITE_SUPABASE_URL</code>
               <code className="block text-xs font-mono text-stone-600 bg-white p-4 border border-stone-100">VITE_SUPABASE_ANON_KEY</code>
             </div>
@@ -2267,13 +2341,13 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white font-sans text-stone-900 overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-white font-sans text-stone-900 overflow-hidden">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-xl z-[1001] border-b border-stone-100 sticky top-0">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-3 sm:px-5 md:px-6 md:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h1 className="text-3xl font-black tracking-tighter text-black uppercase">milz</h1>
+            <div className="flex items-center gap-3 md:gap-4 min-w-0">
+              <h1 className="text-[2rem] md:text-3xl font-black tracking-tighter text-black uppercase leading-none">milz</h1>
               {role === 'admin' && (
                 <div className="px-2 py-0.5 bg-stone-100 text-[7px] font-bold text-stone-500 flex items-center gap-1 uppercase tracking-[0.2em] rounded-full border border-stone-200">
                   <ShieldCheck className="w-2 h-2" />
@@ -2281,14 +2355,14 @@ export default function App() {
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 md:gap-4 shrink-0">
               <div className="relative">
                 <button 
                   onClick={() => setShowMapStyleMenu((prev) => !prev)}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-stone-200 bg-stone-50 text-[10px] font-black uppercase tracking-[0.2em] text-stone-600 hover:text-black hover:bg-white transition-all"
+                  className="inline-flex items-center gap-2 px-3 py-2 md:px-4 md:py-2.5 rounded-full border border-stone-200 bg-stone-50 text-[9px] md:text-[10px] font-black uppercase tracking-[0.18em] md:tracking-[0.2em] text-stone-600 hover:text-black hover:bg-white transition-all"
                 >
                   <Layers3 className="w-4 h-4" />
-                  Map Style
+                  <span className="hidden sm:inline">Map Style</span><span className="sm:hidden">Style</span>
                 </button>
                 <AnimatePresence>
                   {showMapStyleMenu && (
@@ -2341,7 +2415,7 @@ export default function App() {
                   EN
                 </button>
               </div>
-              <div className="h-4 w-px bg-stone-100" />
+              <div className="hidden sm:block h-4 w-px bg-stone-100" />
               <div className="relative">
                 <button 
                   onClick={() => setActiveTab('profile')}
@@ -2361,7 +2435,7 @@ export default function App() {
               </div>
               <button 
                 onClick={handleLogout}
-                className="p-2.5 hover:bg-stone-50 rounded-full transition-all"
+                className="p-2 md:p-2.5 hover:bg-stone-50 rounded-full transition-all"
               >
                 <LogOut className="w-4 h-4 text-stone-300 hover:text-stone-600 transition-colors" />
               </button>
@@ -2371,7 +2445,7 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 relative overflow-hidden">
+      <main className="flex-1 relative overflow-hidden min-h-0">
         <AnimatePresence mode="wait">
           {activeTab === 'map' && (
             <motion.div 
@@ -2382,9 +2456,9 @@ export default function App() {
               className="h-full w-full relative"
             >
               {/* Map Controls */}
-              <div className="absolute top-6 left-6 right-6 z-[1000] flex flex-col gap-4 max-w-2xl mx-auto">
+              <div className="absolute top-3 left-3 right-3 md:top-6 md:left-6 md:right-6 z-[1000] flex flex-col gap-3 md:gap-4 max-w-2xl mx-auto">
                 <div className="flex gap-2">
-                  <div className="flex-1 glass rounded-2xl shadow-xl flex items-center px-6 py-4">
+                  <div className="flex-1 glass rounded-2xl shadow-xl flex items-center px-4 py-3 md:px-6 md:py-4">
                     <Search className="w-4 h-4 text-stone-400 mr-4" />
                     <input
                       type="text"
@@ -2424,7 +2498,7 @@ export default function App() {
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
-                      className="bg-white/90 backdrop-blur-md shadow-2xl border border-stone-200 p-8 space-y-8 rounded-[2.5rem]"
+                      className="bg-white/90 backdrop-blur-md shadow-2xl border border-stone-200 p-5 md:p-8 space-y-6 md:space-y-8 rounded-[2rem] md:rounded-[2.5rem] max-h-[calc(100svh-10rem)] overflow-y-auto"
                     >
                       <div className="space-y-6">
                         <div className="flex items-center gap-3 mb-2">
@@ -2731,7 +2805,7 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto p-6 space-y-6 bg-stone-50"
+              className="h-full overflow-y-auto p-4 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:p-6 md:pb-44 space-y-4 md:space-y-6 bg-stone-50"
             >
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
@@ -2744,7 +2818,7 @@ export default function App() {
                 />
               </div>
 
-              <div className="flex items-center gap-2 p-1 bg-white border border-stone-200 rounded-xl shadow-sm">
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-white border border-stone-200 rounded-xl shadow-sm">
                 <button 
                   onClick={() => setListFilter('all')}
                   className={cn(
@@ -2775,7 +2849,7 @@ export default function App() {
               </div>
 
               {listFilter === 'all' && (
-                <div className="flex items-center justify-between px-6 py-4 bg-white border border-stone-200 rounded-xl shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-4 md:px-6 bg-white border border-stone-200 rounded-xl shadow-sm">
                   <div className="flex items-center gap-3">
                     <MapIcon className="w-5 h-5 text-stone-400" />
                     <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Filter by map area</span>
@@ -2801,7 +2875,7 @@ export default function App() {
                     <motion.div
                       layout
                       key={item.key}
-                      className="bg-white p-6 border border-stone-100 group shadow-sm hover:shadow-xl transition-all duration-500"
+                      className="bg-white p-5 md:p-6 border border-stone-100 rounded-[1.75rem] group shadow-sm hover:shadow-xl transition-all duration-500"
                     >
                       <div className="space-y-5">
                         <div className="flex items-start justify-between gap-4">
@@ -2862,7 +2936,7 @@ export default function App() {
                       <motion.div 
                         layout
                         key={place.id}
-                        className="bg-white p-6 border border-stone-100 group shadow-sm hover:shadow-xl transition-all duration-500"
+                        className="bg-white p-5 md:p-6 border border-stone-100 rounded-[1.75rem] group shadow-sm hover:shadow-xl transition-all duration-500"
                       >
                         <div className="flex gap-6">
                           <div className="w-24 h-24 flex items-center justify-center shrink-0 bg-stone-50 border border-stone-100 overflow-hidden rounded-2xl">
@@ -2933,14 +3007,14 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto bg-[#F8F8F7] relative z-10 pb-40"
+              className="h-full overflow-y-auto bg-[#F8F8F7] relative z-10 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-40"
             >
-              <div className="max-w-7xl mx-auto px-6 py-12 space-y-12">
+              <div className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12 space-y-6 md:space-y-12">
                 {/* AI Discovery Header */}
-                <div className="bg-white p-16 rounded-[3rem] border border-stone-100 shadow-sm space-y-6 relative overflow-hidden">
+                <div className="bg-white p-6 md:p-10 xl:p-16 rounded-[2rem] md:rounded-[3rem] border border-stone-100 shadow-sm space-y-4 md:space-y-6 relative overflow-hidden">
                   <div className="relative z-10 space-y-4">
                     <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">MILZ AI DISCOVERY</p>
-                    <h2 className="text-5xl font-black text-black leading-[1.1] tracking-tight max-w-2xl">
+                    <h2 className="text-3xl md:text-5xl font-black text-black leading-[1.05] md:leading-[1.1] tracking-tight max-w-2xl">
                       {t('aiTitle')}
                     </h2>
                     <p className="text-sm text-stone-400 font-medium max-w-2xl">
@@ -2954,8 +3028,8 @@ export default function App() {
                   {/* Left Column: Filter & Action */}
                   <div className="lg:col-span-8 space-y-8">
                     {/* Location Filter Card */}
-                    <div className="bg-white p-12 rounded-[3rem] border border-stone-100 shadow-sm space-y-10">
-                      <div className="flex items-end justify-between">
+                    <div className="bg-white p-5 md:p-8 xl:p-12 rounded-[2rem] md:rounded-[3rem] border border-stone-100 shadow-sm space-y-6 md:space-y-10">
+                      <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
                         <div className="space-y-1">
                           <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">ロケーションフィルター</p>
                           <h3 className="text-2xl font-black text-black tracking-tight">Active region</h3>
@@ -3028,7 +3102,7 @@ export default function App() {
                                 cityName: ''
                               }));
                             }}
-                            className="w-full px-8 py-5 bg-stone-50 border border-stone-100 rounded-[1.5rem] outline-none focus:border-black appearance-none font-bold text-sm"
+                            className="w-full px-5 py-4 md:px-8 md:py-5 bg-stone-50 border border-stone-100 rounded-[1.25rem] md:rounded-[1.5rem] outline-none focus:border-black appearance-none font-bold text-sm"
                           >
                             <option value="">Select Country</option>
                             {countries.map(c => (
@@ -3090,7 +3164,7 @@ export default function App() {
                       <button 
                         onClick={handleAiRecommend}
                         disabled={aiLoading}
-                        className="w-full p-10 bg-[#1A1A1A] text-white font-black rounded-[2.5rem] flex items-center justify-center gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50 tracking-[0.5em] text-xs hover:bg-black group"
+                        className="w-full p-6 md:p-10 bg-[#1A1A1A] text-white font-black rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center gap-3 md:gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50 tracking-[0.35em] md:tracking-[0.5em] text-[11px] md:text-xs hover:bg-black group"
                       >
                         {aiLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6 group-hover:scale-110 transition-transform" />}
                         {t('getRecommendations')}
@@ -3113,7 +3187,7 @@ export default function App() {
                                   initial={{ opacity: 0, y: 20 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: i * 0.05 }}
-                                  className="bg-white p-10 border border-stone-100 rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group"
+                                  className="bg-white p-6 md:p-8 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group"
                                 >
                                   <div className="flex items-start justify-between mb-6">
                                     <h4 className="text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
@@ -3155,7 +3229,7 @@ export default function App() {
 
                   {/* Right Column: Summary */}
                   <div className="lg:col-span-4 space-y-6">
-                    <div className="bg-white p-10 rounded-[2.5rem] border border-stone-100 shadow-sm space-y-10 sticky top-24">
+                    <div className="bg-white p-5 md:p-8 xl:p-10 rounded-[2rem] md:rounded-[2.5rem] border border-stone-100 shadow-sm space-y-6 md:space-y-10 sticky top-20 md:top-24">
                       <div className="space-y-1">
                         <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">REGION SUMMARY</p>
                         <h3 className="text-xl font-black text-black tracking-tight">{t('currentScope')}</h3>
@@ -3203,7 +3277,7 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto bg-black text-white pb-44 md:pb-48 snap-y snap-mandatory"
+              className="h-full overflow-y-auto bg-black text-white pb-[calc(10rem+env(safe-area-inset-bottom))] md:pb-44 snap-y snap-mandatory overscroll-y-contain"
             >
               {shortsFeed.length === 0 ? (
                 <div className="h-full flex items-center justify-center px-6">
@@ -3228,11 +3302,11 @@ export default function App() {
                   return (
                     <section
                       key={item.id}
-                      className="min-h-[calc(100svh-7rem)] snap-start px-4 pt-8 pb-40 md:px-8 md:pt-10 md:pb-48 flex items-center"
+                      className="min-h-[calc(100svh-7rem)] snap-start px-4 pt-4 pb-[calc(12.5rem+env(safe-area-inset-bottom))] sm:px-6 md:px-8 md:pt-8 md:pb-44 flex items-start xl:items-center"
                     >
-                      <div className="w-full max-w-[1460px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(340px,430px)_minmax(420px,560px)_minmax(0,1fr)] gap-6 xl:gap-8 items-center">
-                        <div className="w-full max-w-[430px] mx-auto xl:col-start-2 xl:mx-auto">
-                          <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)]">
+                      <div className="w-full max-w-[1400px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,400px)_minmax(360px,560px)_minmax(0,1fr)] gap-6 md:gap-8 xl:gap-14 items-center">
+                        <div className="w-full max-w-[270px] sm:max-w-[310px] lg:max-w-[340px] xl:max-w-[380px] mx-auto xl:col-start-2 xl:justify-self-center">
+                          <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)] max-h-[calc(100svh-20rem)] md:max-h-[calc(100svh-18rem)] xl:max-h-[calc(100svh-16rem)]">
                             <iframe
                               src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
                               title={`${item.placeName} short`}
@@ -3251,14 +3325,14 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="space-y-5 xl:col-start-3 xl:max-w-[560px]">
-                          <div className="space-y-3">
-                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.32em] text-white/45">
+                        <div className="w-full max-w-[560px] mx-auto xl:mx-0 xl:col-start-3 xl:justify-self-start space-y-4 md:space-y-5">
+                          <div className="space-y-2 md:space-y-3 text-center xl:text-left">
+                            <div className="flex flex-wrap items-center justify-center xl:justify-start gap-2 text-[10px] font-black uppercase tracking-[0.32em] text-white/45">
                               <span>MILZ SHORTS</span>
                               <span className="h-1 w-1 rounded-full bg-white/25" />
                               <span>{item.category}</span>
                             </div>
-                            <h2 className="text-3xl md:text-[3.4rem] xl:text-[4.2rem] font-black leading-[0.92] tracking-tight">{item.placeName}</h2>
+                            <h2 className="text-[2.35rem] sm:text-[2.75rem] md:text-[3.4rem] xl:text-[4.2rem] font-black leading-[0.92] tracking-tight">{item.placeName}</h2>
                             <p className="max-w-2xl text-sm md:text-[15px] leading-relaxed text-white/68">{descriptionValue}</p>
                           </div>
 
@@ -3311,7 +3385,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3 pt-1">
+                          <div className="flex flex-wrap items-center justify-center xl:justify-start gap-3 pt-1">
                             <button
                               onClick={() => handleToggleFavorite(item.placeId)}
                               className={cn(
@@ -3354,15 +3428,15 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="h-full overflow-y-auto px-4 pt-6 pb-40 md:px-8 md:pt-8 md:pb-44 bg-[#f3f1ec] relative z-10"
+              className="h-full overflow-y-auto px-4 pt-4 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:px-8 md:pt-8 md:pb-44 bg-[#f3f1ec] relative z-10"
             >
-              <div className="max-w-6xl mx-auto space-y-6">
+              <div className="max-w-6xl mx-auto space-y-4 md:space-y-6">
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] items-start">
-                  <section className="bg-white border border-stone-300/80 rounded-[2rem] shadow-[0_20px_70px_rgba(0,0,0,0.06)] p-6 md:p-10 xl:p-12 space-y-8">
+                  <section className="bg-white border border-stone-300/80 rounded-[2rem] shadow-[0_20px_70px_rgba(0,0,0,0.06)] p-5 md:p-10 xl:p-12 space-y-6 md:space-y-8">
                     <div className="space-y-4">
                       <div className="text-[10px] font-black uppercase tracking-[0.32em] text-stone-400">S 04 — PROFILE</div>
                       <div className="space-y-2">
-                        <h2 className="text-[3.1rem] md:text-[4.8rem] xl:text-[6rem] leading-[0.86] font-black uppercase tracking-[-0.06em] text-black break-words">
+                        <h2 className="text-[2.3rem] sm:text-[2.8rem] md:text-[4.8rem] xl:text-[6rem] leading-[0.88] md:leading-[0.86] font-black uppercase tracking-[-0.06em] text-black break-words">
                           {(profileDisplayName || user.email?.split('@')[0] || 'MILZ').replace(/\.$/, '')}.
                         </h2>
                         <p className="text-[11px] font-medium uppercase tracking-[0.26em] text-stone-500">— {locale === 'jp' ? 'MILZの読者' : 'A reader of MILZ'}</p>
@@ -3795,9 +3869,9 @@ export default function App() {
       </main>
 
       {/* Navigation */}
-      <div className="fixed bottom-5 left-4 right-4 z-[1001] pointer-events-none">
-        <nav className="max-w-2xl mx-auto bg-white/88 backdrop-blur-xl border border-stone-200/70 shadow-[0_20px_50px_rgba(0,0,0,0.08)] rounded-[1.8rem] pointer-events-auto overflow-hidden">
-          <div className="px-5 py-2.5 flex items-center justify-between gap-2">
+      <div className="fixed bottom-2 md:bottom-5 left-3 right-3 md:left-4 md:right-4 z-[1001] pointer-events-none">
+        <nav className="max-w-2xl mx-auto bg-white/90 backdrop-blur-xl border border-stone-200/70 shadow-[0_20px_50px_rgba(0,0,0,0.08)] rounded-[1.4rem] md:rounded-[1.8rem] pointer-events-auto overflow-hidden">
+          <div className="px-3 md:px-5 py-2 md:py-2.5 flex items-center justify-between gap-1 md:gap-2">
             <button 
               onClick={() => setActiveTab('map')}
               className={cn(
@@ -3806,7 +3880,7 @@ export default function App() {
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-1.5 md:p-1.5 rounded-[0.95rem] md:rounded-[1rem] transition-all",
                 activeTab === 'map' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
                 <MapIcon className="w-4 h-4" />
@@ -3821,7 +3895,7 @@ export default function App() {
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-1.5 md:p-1.5 rounded-[0.95rem] md:rounded-[1rem] transition-all",
                 activeTab === 'list' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
                 <ListIcon className="w-4 h-4" />
@@ -3836,7 +3910,7 @@ export default function App() {
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-1.5 md:p-1.5 rounded-[0.95rem] md:rounded-[1rem] transition-all",
                 activeTab === 'shorts' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
                 <Play className="w-4 h-4" />
@@ -3851,7 +3925,7 @@ export default function App() {
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-1.5 md:p-1.5 rounded-[0.95rem] md:rounded-[1rem] transition-all",
                 activeTab === 'ai' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
                 <Sparkles className="w-4 h-4" />
@@ -3866,7 +3940,7 @@ export default function App() {
               )}
             >
               <div className={cn(
-                "p-1.5 rounded-[1rem] transition-all",
+                "p-1.5 md:p-1.5 rounded-[0.95rem] md:rounded-[1rem] transition-all",
                 activeTab === 'profile' ? "bg-stone-50" : "group-hover:bg-stone-50/50"
               )}>
                 <UserIcon className="w-4 h-4" />
