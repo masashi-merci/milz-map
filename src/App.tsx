@@ -2680,22 +2680,27 @@ export default function App() {
     }
 
     const client = getSupabase();
-    if (!client) return false;
+    if (!client) return true;
 
-    const { data, error } = await client.auth.updateUser({
-      data: {
-        ...(user.user_metadata || {}),
-        [AUTH_METADATA_AI_FAVORITES_KEY]: next,
-      },
-    });
+    try {
+      const { data, error } = await client.auth.updateUser({
+        data: {
+          ...(user.user_metadata || {}),
+          [AUTH_METADATA_AI_FAVORITES_KEY]: next,
+        },
+      });
 
-    if (error) {
+      if (error) {
+        console.error('Failed to persist AI favorites:', error);
+        return true;
+      }
+
+      if (data.user) {
+        setUser(data.user);
+      }
+    } catch (error) {
       console.error('Failed to persist AI favorites:', error);
-      return false;
-    }
-
-    if (data.user) {
-      setUser(data.user);
+      return true;
     }
 
     return true;
@@ -2766,6 +2771,13 @@ export default function App() {
       'success'
     );
   };
+
+
+  const isAiRecommendationSaved = React.useCallback((rec?: { lat: number; lng: number } | null) => {
+    if (!rec) return false;
+    const key = createAiFavoriteKey(rec);
+    return aiFavorites.some((item) => item.key === key);
+  }, [aiFavorites]);
 
   const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
     setPendingMapFocus(coords);
@@ -3728,7 +3740,7 @@ export default function App() {
                               {place.description || 'No description available.'}
                             </p>
 
-                            <div className="flex items-center justify-between gap-3 pt-2">
+                            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                               {place.website_url ? (
                                 <a
                                   href={place.website_url}
@@ -3743,14 +3755,24 @@ export default function App() {
                                 <span className="text-[10px] font-black text-stone-300 uppercase tracking-widest">No Link</span>
                               )}
 
-                              <button
-                                type="button"
-                                onClick={() => openPlaceDetail(place)}
-                                className="px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-stone-800 transition-all"
-                              >
-                                Details
-                                <ChevronRight className="w-3 h-3" />
-                              </button>
+                              <div className="ml-auto flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePlaceViewOnMap({ lat: place.lat, lng: place.lng })}
+                                  className="px-4 py-3 border border-stone-200 text-stone-500 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:border-black hover:text-black transition-all"
+                                >
+                                  <MapPin className="w-3 h-3" />
+                                  {t('viewOnMap')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openPlaceDetail(place)}
+                                  className="px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-stone-800 transition-all"
+                                >
+                                  Details
+                                  <ChevronRight className="w-3 h-3" />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -6191,10 +6213,17 @@ CREATE POLICY "Users can delete own favorites" ON favorites FOR DELETE USING (au
                 </button>
                 <button
                   onClick={() => handleSaveAiRecommendation(selectedAiRecommendation)}
-                  className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.22em] text-stone-700 hover:border-black hover:text-black transition-all"
+                  className={cn(
+                    "inline-flex items-center gap-2 px-5 py-3 rounded-full border text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                    isAiRecommendationSaved(selectedAiRecommendation)
+                      ? "border-rose-200 bg-rose-50 text-rose-500"
+                      : "border-stone-300 text-stone-700 hover:border-black hover:text-black"
+                  )}
                 >
-                  <Heart className="w-4 h-4" />
-                  {t('saveAi')}
+                  <Heart className={cn("w-4 h-4", isAiRecommendationSaved(selectedAiRecommendation) && "fill-current")} />
+                  {isAiRecommendationSaved(selectedAiRecommendation)
+                    ? (locale === 'jp' ? 'AI保存済み' : 'AI Saved')
+                    : t('saveAi')}
                 </button>
               </div>
             </motion.div>
