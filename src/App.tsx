@@ -791,15 +791,20 @@ const areAiFavoritesEquivalent = (
   const exactCoords = Math.abs(leftCoords.lat - rightCoords.lat) <= 0.00015 && Math.abs(leftCoords.lng - rightCoords.lng) <= 0.00015;
   if (exactCoords) return true;
 
-  const nearby = getDistanceMeters(leftCoords, rightCoords) <= 120;
-  if (!nearby) return false;
-
+  const distanceMeters = getDistanceMeters(leftCoords, rightCoords);
   const leftNames = getAiFavoriteAllNames(left).map(normalizeAiComparisonName).filter(Boolean);
   const rightNames = getAiFavoriteAllNames(right).map(normalizeAiComparisonName).filter(Boolean);
   const nameMatches = leftNames.some((name) => rightNames.includes(name));
-  if (nameMatches) return true;
 
-  return Boolean(left.category && right.category && left.category === right.category);
+  if (nameMatches && distanceMeters <= 1500) {
+    return true;
+  }
+
+  if (distanceMeters <= 120) {
+    return true;
+  }
+
+  return Boolean(nameMatches && left.category && right.category && left.category === right.category && distanceMeters <= 2500);
 };
 
 const findMatchingAiFavoriteItem = (
