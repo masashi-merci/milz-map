@@ -301,20 +301,22 @@ interface Favorite {
   created_at: string;
 }
 
-interface AIRecommendationItem {
-  name: string;
-  reason: string;
-  details?: string;
-  category: string;
-  lat: number;
-  lng: number;
-  image_url?: string;
-  image_source?: 'milz' | 'wikipedia' | 'fallback';
-  matched_place_id?: string;
+interface AIResults {
+  recommendations?: {
+    name: string;
+    reason: string;
+    details?: string;
+    category: string;
+    lat: number;
+    lng: number;
+  }[];
 }
 
-interface AIResults {
-  recommendations?: AIRecommendationItem[];
+type AiRecommendationItem = NonNullable<AIResults['recommendations']>[number];
+
+interface AiRecommendationVisual {
+  imageUrl: string;
+  source: 'place' | 'location-card';
 }
 
 
@@ -343,9 +345,6 @@ interface AiFavoriteItem {
   details?: string;
   area_key?: string;
   city_name?: string;
-  image_url?: string;
-  image_source?: 'milz' | 'wikipedia' | 'fallback';
-  matched_place_id?: string;
 }
 
 
@@ -679,9 +678,6 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
         details: translation.details || item?.details || item?.reason || '',
         area_key: item?.area_key || undefined,
         city_name: item?.city_name || undefined,
-        image_url: item?.image_url || undefined,
-        image_source: item?.image_source || undefined,
-        matched_place_id: item?.matched_place_id || undefined,
       });
       return;
     }
@@ -706,46 +702,12 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       details: entry.details || translation.details || entry.reason,
       area_key: entry.area_key || item?.area_key || undefined,
       city_name: entry.city_name || item?.city_name || undefined,
-      image_url: entry.image_url || item?.image_url || undefined,
-      image_source: entry.image_source || item?.image_source || undefined,
-      matched_place_id: entry.matched_place_id || item?.matched_place_id || undefined,
     });
   });
 
   return Array.from(merged.values()).sort((a, b) => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
-};
-
-const normalizeLookupValue = (value?: string | null) => (value || '')
-  .normalize('NFKC')
-  .toLowerCase()
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^\p{L}\p{N}]+/gu, ' ')
-  .trim();
-
-const buildAiFallbackImage = (name: string, category: string, areaLabel?: string) => {
-  const safeName = name || 'MILZ';
-  const safeCategory = category || 'AI Recommendation';
-  const safeArea = areaLabel || 'MILZ';
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
-      <defs>
-        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#111111" />
-          <stop offset="100%" stop-color="#2f2f2f" />
-        </linearGradient>
-      </defs>
-      <rect width="1200" height="800" rx="48" fill="url(#bg)" />
-      <circle cx="980" cy="160" r="120" fill="#ffffff" fill-opacity="0.06" />
-      <circle cx="150" cy="640" r="180" fill="#ffffff" fill-opacity="0.05" />
-      <text x="80" y="118" fill="#d6d3d1" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" letter-spacing="8">MILZ AI</text>
-      <text x="80" y="410" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800">${safeName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
-      <text x="82" y="470" fill="#e7e5e4" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="600" letter-spacing="4">${safeCategory.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
-      <text x="82" y="540" fill="#a8a29e" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="500">${safeArea.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
-    </svg>
-  `.trim();
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };
 
 const findAreaOption = (areaKey?: string | null) => AREA_OPTIONS.find((item) => item.key === areaKey) || AREA_OPTIONS[0];
@@ -803,6 +765,95 @@ const resolvePlaceCityName = (place: Partial<Place>, areaKey?: string) => {
 };
 
 const getAreaCityOptions = (areaKey?: string | null) => findAreaOption(areaKey).cities;
+
+const normalizeNameForMatch = (value?: string | null) => {
+  return (value || '')
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/['’`´]/g, '')
+    .replace(/\b(the|tokyo|new york|kyoto|seoul|hawaii)\b/g, ' ')
+    .replace(/[\s\-‐‑‒–—―_/.,()【】「」『』·・]+/g, ' ')
+    .trim();
+};
+
+const truncateVisualText = (value: string, maxLength: number) => {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+};
+
+const escapeSvgText = (value: string) => value
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const getAiCardTheme = (category?: string) => {
+  const normalized = category || 'その他';
+  if (normalized.includes('カフェ')) return { start: '#f5efe6', end: '#ddd0c0', accent: '#72563a', line: '#d8c7b4' };
+  if (normalized.includes('レストラン')) return { start: '#f6ece8', end: '#e6c7c0', accent: '#7d4345', line: '#ddc1ba' };
+  if (normalized.includes('ショッピング')) return { start: '#eef1f4', end: '#d6dde6', accent: '#41566f', line: '#c9d3de' };
+  if (normalized.includes('エンターテイメント')) return { start: '#ece9f7', end: '#d4cdee', accent: '#4d3b75', line: '#c8c0e4' };
+  if (normalized.includes('公園') || normalized.includes('自然')) return { start: '#edf5ee', end: '#d4e6d7', accent: '#3e6a4a', line: '#c7ddcb' };
+  if (normalized.includes('神社') || normalized.includes('寺院')) return { start: '#f5f1e8', end: '#e4dac6', accent: '#6f5a35', line: '#ddd0bc' };
+  return { start: '#f3f0eb', end: '#ddd7cf', accent: '#4a4a4a', line: '#d2cbc2' };
+};
+
+const buildAiLocationCardImage = ({
+  rec,
+  areaLabel,
+  cityLabel,
+}: {
+  rec: AiRecommendationItem;
+  areaLabel: string;
+  cityLabel: string;
+}) => {
+  const theme = getAiCardTheme(rec.category);
+  const title = escapeSvgText(truncateVisualText(rec.name, 30));
+  const category = escapeSvgText(truncateVisualText(rec.category || 'MILZ AI', 16));
+  const subtitle = escapeSvgText(truncateVisualText(cityLabel ? `${areaLabel} · ${cityLabel}` : areaLabel, 28));
+  const detail = escapeSvgText(truncateVisualText(rec.reason || rec.details || '', 46));
+  const coords = `${Number(rec.lat).toFixed(4)}, ${Number(rec.lng).toFixed(4)}`;
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760">
+    <defs>
+      <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0%" stop-color="${theme.start}" />
+        <stop offset="100%" stop-color="${theme.end}" />
+      </linearGradient>
+      <linearGradient id="shine" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.7" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </linearGradient>
+    </defs>
+    <rect width="1200" height="760" rx="48" fill="url(#bg)" />
+    <rect x="38" y="38" width="1124" height="684" rx="38" fill="none" stroke="#ffffff" stroke-opacity="0.55" />
+    <path d="M120 610 C 260 480, 390 620, 540 520 S 880 390, 1050 470" fill="none" stroke="${theme.line}" stroke-width="20" stroke-linecap="round" opacity="0.65" />
+    <path d="M130 190 C 280 130, 390 260, 555 220 S 850 105, 1035 180" fill="none" stroke="${theme.line}" stroke-width="12" stroke-linecap="round" opacity="0.45" />
+    <path d="M170 330 C 310 290, 420 420, 600 400 S 870 250, 1030 315" fill="none" stroke="${theme.line}" stroke-width="8" stroke-linecap="round" opacity="0.4" />
+    <circle cx="865" cy="245" r="146" fill="#ffffff" opacity="0.18" />
+    <circle cx="918" cy="228" r="98" fill="#ffffff" opacity="0.12" />
+    <rect x="92" y="92" width="210" height="52" rx="26" fill="#ffffff" fill-opacity="0.72" />
+    <text x="197" y="126" text-anchor="middle" font-size="26" font-family="Inter, Arial, sans-serif" font-weight="800" letter-spacing="5" fill="${theme.accent}">MILZ AI</text>
+    <text x="92" y="196" font-size="24" font-family="Inter, Arial, sans-serif" font-weight="800" letter-spacing="4" fill="${theme.accent}" opacity="0.72">${subtitle}</text>
+    <text x="92" y="292" font-size="76" font-family="Inter, Arial, sans-serif" font-weight="900" fill="#111111">${title}</text>
+    <text x="92" y="350" font-size="28" font-family="Inter, Arial, sans-serif" font-weight="600" fill="#222222" opacity="0.82">${detail}</text>
+    <rect x="92" y="420" width="208" height="54" rx="27" fill="#ffffff" fill-opacity="0.75" />
+    <text x="196" y="455" text-anchor="middle" font-size="24" font-family="Inter, Arial, sans-serif" font-weight="800" letter-spacing="3" fill="${theme.accent}">${category}</text>
+    <g transform="translate(905 468)">
+      <circle cx="0" cy="0" r="86" fill="#ffffff" fill-opacity="0.82" />
+      <circle cx="0" cy="-10" r="28" fill="${theme.accent}" />
+      <path d="M0 78 C -34 48 -50 26 -50 -2 C -50 -34 -28 -58 0 -58 C 28 -58 50 -34 50 -2 C 50 26 34 48 0 78Z" fill="${theme.accent}" opacity="0.92" />
+      <circle cx="0" cy="-2" r="12" fill="#ffffff" />
+    </g>
+    <text x="92" y="638" font-size="20" font-family="Inter, Arial, sans-serif" font-weight="700" letter-spacing="4" fill="${theme.accent}" opacity="0.72">LOCATION</text>
+    <text x="92" y="676" font-size="28" font-family="Inter, Arial, sans-serif" font-weight="700" fill="#111111">${escapeSvgText(coords)}</text>
+    <rect x="0" y="0" width="1200" height="760" rx="48" fill="url(#shine)" />
+  </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+};
+
+const createAiRecommendationVisualKey = (rec: AiRecommendationItem, index: number) => `${createAiFavoriteKey(rec)}::${index}`;
 
 const uiCopy: Record<Locale, Record<string, string>> = {
   jp: {
@@ -1029,11 +1080,10 @@ export default function App() {
   const [placeEditorAreaKey, setPlaceEditorAreaKey] = useState<string>('tokyo');
   const [placeEditorCityName, setPlaceEditorCityName] = useState<string>('Shibuya');
   const [placeEditorBadges, setPlaceEditorBadges] = useState<string[]>([]);
-  const [selectedAiRecommendation, setSelectedAiRecommendation] = useState<AIRecommendationItem | null>(null);
+  const [selectedAiRecommendation, setSelectedAiRecommendation] = useState<AIResults['recommendations'] extends (infer T)[] ? T | null : any>(null);
   const [aiLeaderboard, setAiLeaderboard] = useState<AiRecommendationMetric[]>([]);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const [selectedPlaceForDetail, setSelectedPlaceForDetail] = useState<Place | null>(null);
-  const aiImageCacheRef = useRef<Record<string, { url: string; source: 'milz' | 'wikipedia' | 'fallback'; matched_place_id?: string }>>({});
 
   const openPlaceDetail = React.useCallback((target: Place | string | null | undefined) => {
     if (!target) {
@@ -1119,7 +1169,6 @@ export default function App() {
   const [locationFilter, setLocationFilter] = useState(() => createLocationFilterFromArea('tokyo', 'Shibuya'));
   const areaOptions = AREA_OPTIONS;
   const areaCityOptions = useMemo(() => getAreaCityOptions(locationFilter.areaKey), [locationFilter.areaKey]);
-  const currentAreaLabel = findAreaOption(locationFilter.areaKey)?.label || locationFilter.areaName;
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
@@ -2481,126 +2530,6 @@ export default function App() {
   };
 
 
-  const fetchWikipediaThumbnail = React.useCallback(async (rec: AIRecommendationItem, areaKey?: string, cityName?: string) => {
-    const areaLabel = findAreaOption(areaKey || locationFilter.areaKey)?.label || currentAreaLabel || '';
-    const queries = Array.from(new Set([
-      [rec.name, cityName, areaLabel].filter(Boolean).join(' '),
-      [rec.name, cityName].filter(Boolean).join(' '),
-      [rec.name, areaLabel].filter(Boolean).join(' '),
-      rec.name,
-    ].map((value) => value.trim()).filter(Boolean)));
-
-    const languages = locale === 'jp' ? ['ja', 'en'] : ['en', 'ja'];
-
-    for (const lang of languages) {
-      for (const query of queries) {
-        try {
-          const searchResponse = await fetch(`https://${lang}.wikipedia.org/w/api.php?origin=*&action=query&list=search&format=json&utf8=1&srlimit=5&srsearch=${encodeURIComponent(query)}`);
-          if (!searchResponse.ok) continue;
-          const searchJson = await searchResponse.json();
-          const firstHit = searchJson?.query?.search?.[0];
-          if (!firstHit?.pageid) continue;
-
-          const pageResponse = await fetch(`https://${lang}.wikipedia.org/w/api.php?origin=*&action=query&format=json&prop=pageimages|info&pageids=${firstHit.pageid}&piprop=thumbnail&pithumbsize=1200&inprop=url`);
-          if (!pageResponse.ok) continue;
-          const pageJson = await pageResponse.json();
-          const page = pageJson?.query?.pages?.[String(firstHit.pageid)];
-          const thumbnail = page?.thumbnail?.source;
-          if (thumbnail) {
-            return { url: thumbnail as string, source: 'wikipedia' as const };
-          }
-        } catch (error) {
-          console.warn('Wikipedia thumbnail lookup failed:', error);
-        }
-      }
-    }
-
-    return null;
-  }, [currentAreaLabel, locale, locationFilter.areaKey]);
-
-  const resolveAiRecommendationImage = React.useCallback(async (rec: AIRecommendationItem, areaKey?: string, cityName?: string) => {
-    const normalized = normalizeMapCoords(rec.lat, rec.lng);
-    const cacheKey = [normalizeLookupValue(rec.name), areaKey || locationFilter.areaKey || '', cityName || locationFilter.cityName || '', normalized?.lat?.toFixed(4) || '', normalized?.lng?.toFixed(4) || ''].join('::');
-    const cached = aiImageCacheRef.current[cacheKey];
-    if (cached) return cached;
-
-    const normalizedName = normalizeLookupValue(rec.name);
-    const normalizedCity = normalizeLookupValue(cityName || locationFilter.cityName || '');
-    const targetAreaKey = areaKey || locationFilter.areaKey;
-
-    const sameAreaPlaces = places.filter((place) => {
-      const placeAreaKey = place.area_key || inferAreaKeyFromCoords(place.lat, place.lng);
-      return !targetAreaKey || placeAreaKey === targetAreaKey;
-    });
-
-    const scoredMatches = sameAreaPlaces
-      .filter((place) => Boolean(place.image_url || place.images?.[0]))
-      .map((place) => {
-        const placeName = normalizeLookupValue(place.name);
-        const placeCity = normalizeLookupValue(place.municipality || place.area_label || place.prefecture || '');
-        let score = 0;
-
-        if (placeName === normalizedName) score += 100;
-        else if (placeName.includes(normalizedName) || normalizedName.includes(placeName)) score += 55;
-
-        if (normalizedCity) {
-          if (placeCity === normalizedCity) score += 25;
-          else if (placeCity.includes(normalizedCity) || normalizedCity.includes(placeCity)) score += 12;
-        }
-
-        if (normalized) {
-          const distance = Math.sqrt(Math.pow(place.lat - normalized.lat, 2) + Math.pow(place.lng - normalized.lng, 2));
-          score += Math.max(0, 10 - distance * 100);
-        }
-
-        return {
-          place,
-          score,
-          url: place.image_url || place.images?.[0] || '',
-        };
-      })
-      .filter((item) => item.score >= 60 && item.url)
-      .sort((a, b) => b.score - a.score);
-
-    if (scoredMatches[0]) {
-      const resolved = {
-        url: scoredMatches[0].url,
-        source: 'milz' as const,
-        matched_place_id: scoredMatches[0].place.id,
-      };
-      aiImageCacheRef.current[cacheKey] = resolved;
-      return resolved;
-    }
-
-    const wikiImage = await fetchWikipediaThumbnail(rec, areaKey, cityName);
-    if (wikiImage?.url) {
-      aiImageCacheRef.current[cacheKey] = wikiImage;
-      return wikiImage;
-    }
-
-    const fallback = {
-      url: buildAiFallbackImage(rec.name, rec.category, findAreaOption(areaKey || locationFilter.areaKey)?.label || currentAreaLabel),
-      source: 'fallback' as const,
-    };
-    aiImageCacheRef.current[cacheKey] = fallback;
-    return fallback;
-  }, [currentAreaLabel, fetchWikipediaThumbnail, locationFilter.areaKey, locationFilter.cityName, places]);
-
-  const enrichAiRecommendations = React.useCallback(async (items: AIRecommendationItem[] = [], areaKey?: string, cityName?: string) => {
-    const enriched = await Promise.all(items.map(async (item) => {
-      if (item.image_url) return item;
-      const image = await resolveAiRecommendationImage(item, areaKey, cityName);
-      return {
-        ...item,
-        image_url: image?.url || item.image_url,
-        image_source: image?.source || item.image_source,
-        matched_place_id: image?.matched_place_id || item.matched_place_id,
-      };
-    }));
-
-    return enriched;
-  }, [resolveAiRecommendationImage]);
-
   const fetchAiLeaderboard = React.useCallback(async (areaKey?: string, cityName?: string, fallbackItems?: AIResults['recommendations']) => {
     const targetAreaKey = areaKey || locationFilter.areaKey;
     const targetCityName = cityName || locationFilter.cityName;
@@ -2772,7 +2701,7 @@ export default function App() {
     return true;
   }, [user]);
 
-  const handleSaveAiRecommendation = async (rec: { name: string; reason: string; details?: string; category: string; lat: number; lng: number; image_url?: string; image_source?: 'milz' | 'wikipedia' | 'fallback'; matched_place_id?: string }) => {
+  const handleSaveAiRecommendation = async (rec: { name: string; reason: string; details?: string; category: string; lat: number; lng: number }) => {
     if (!user) {
       showToast(locale === 'jp' ? 'ログインが必要です。' : 'Please sign in first.', 'error');
       return;
@@ -2809,9 +2738,6 @@ export default function App() {
                 category: normalizedRec.category,
               },
             },
-            image_url: normalizedRec.image_url,
-            image_source: normalizedRec.image_source,
-            matched_place_id: normalizedRec.matched_place_id,
           },
           ...aiFavorites,
         ]);
@@ -2913,34 +2839,11 @@ export default function App() {
 
           if (diffHours < cacheLimit) {
             console.log(`Using cached ${type} for ${locationStr} (${locale})`);
-            const cachedRecommendations = await enrichAiRecommendations(cacheData.data?.recommendations || [], areaKey || locationFilter.areaKey, cityName || locationFilter.cityName);
-            const hydratedCacheData = {
-              ...cacheData.data,
-              recommendations: cachedRecommendations,
-            };
-            setAiResults(hydratedCacheData);
+            setAiResults(cacheData.data);
             setAiResultsLocale(locale);
             setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
-            fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cachedRecommendations);
+            fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cacheData.data?.recommendations || []);
             setAiLoading(false);
-
-            if ((cacheData.data?.recommendations || []).some((item: AIRecommendationItem) => !item.image_url) && client) {
-              void (async () => {
-                const { error: cacheUpdateError } = await client
-                  .from('ai_cache')
-                  .upsert({
-                    type,
-                    location_key: locationCacheKey,
-                    category,
-                    data: hydratedCacheData,
-                    updated_at: cacheData.updated_at || new Date().toISOString(),
-                  }, { onConflict: 'type,location_key,category' });
-
-                if (cacheUpdateError) {
-                  console.error('Failed to refresh cached AI images:', cacheUpdateError);
-                }
-              })();
-            }
             return;
           }
         }
@@ -2992,17 +2895,11 @@ export default function App() {
         }
       });
 
-      const parsedResults = JSON.parse(response.text) as AIResults;
-      const enrichedRecommendations = await enrichAiRecommendations(parsedResults.recommendations || [], areaKey || locationFilter.areaKey, cityName || locationFilter.cityName);
-      const results: AIResults = {
-        ...parsedResults,
-        recommendations: enrichedRecommendations,
-      };
-
+      const results = JSON.parse(response.text);
       setAiResults(results);
       setAiResultsLocale(locale);
       setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
-      fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, enrichedRecommendations);
+      fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, results.recommendations || []);
 
       // 3. 結果をキャッシュに保存（upsert）
       if (client) {
@@ -3074,6 +2971,55 @@ export default function App() {
       return matchesSearch && matchesCategory;
     });
   }, [aiFavorites, searchQuery, selectedCategory, locale]);
+
+  const aiRecommendationVisuals = useMemo(() => {
+    const visuals = new Map<string, AiRecommendationVisual>();
+    const recommendations = aiResults?.recommendations || [];
+    const fallbackAreaKey = locationFilter.areaKey || inferAreaKeyFromCoords(recommendations[0]?.lat, recommendations[0]?.lng) || 'tokyo';
+
+    recommendations.forEach((rec, index) => {
+      const recName = normalizeNameForMatch(rec.name);
+      const areaKey = locationFilter.areaKey || inferAreaKeyFromCoords(rec.lat, rec.lng) || fallbackAreaKey;
+      const area = findAreaOption(areaKey);
+      const cityName = locationFilter.cityName || '';
+      const matchingPlace = places.find((place) => {
+        const placeAreaKey = resolvePlaceAreaKey(place);
+        if (placeAreaKey !== areaKey) return false;
+        const placeCityName = resolvePlaceCityName(place, placeAreaKey);
+        if (cityName && placeCityName && placeCityName !== cityName) return false;
+        const placeName = normalizeNameForMatch(place.name);
+        if (!placeName || !recName) return false;
+        return placeName === recName;
+      });
+
+      if (matchingPlace && (matchingPlace.image_url || matchingPlace.images?.[0])) {
+        visuals.set(createAiRecommendationVisualKey(rec, index), {
+          imageUrl: matchingPlace.image_url || matchingPlace.images?.[0] || '',
+          source: 'place',
+        });
+        return;
+      }
+
+      visuals.set(createAiRecommendationVisualKey(rec, index), {
+        imageUrl: buildAiLocationCardImage({
+          rec,
+          areaLabel: area.label,
+          cityLabel: cityName || resolvePlaceCityName(matchingPlace || {}, areaKey),
+        }),
+        source: 'location-card',
+      });
+    });
+
+    return visuals;
+  }, [aiResults?.recommendations, places, locationFilter.areaKey, locationFilter.cityName]);
+
+  const selectedAiRecommendationVisual = useMemo(() => {
+    if (!selectedAiRecommendation) return null;
+    const recommendations = aiResults?.recommendations || [];
+    const index = recommendations.findIndex((rec) => rec.name === selectedAiRecommendation.name && Number(rec.lat) === Number(selectedAiRecommendation.lat) && Number(rec.lng) === Number(selectedAiRecommendation.lng));
+    const visualKey = createAiRecommendationVisualKey(selectedAiRecommendation, index >= 0 ? index : 0);
+    return aiRecommendationVisuals.get(visualKey) || null;
+  }, [selectedAiRecommendation, aiResults?.recommendations, aiRecommendationVisuals]);
 
   const shortsFeed = useMemo<ShortFeedItem[]>(() => {
     const items: ShortFeedItem[] = [];
@@ -3691,11 +3637,6 @@ export default function App() {
                       className="bg-white p-5 md:p-6 border border-stone-100 rounded-[1.75rem] group shadow-sm hover:shadow-xl transition-all duration-500"
                     >
                       <div className="space-y-5">
-                        {item.image_url && (
-                          <div className="aspect-[4/3] overflow-hidden rounded-[1.5rem] border border-stone-100 bg-stone-100">
-                            <img src={item.image_url} alt={getAiFavoriteDisplay(item, locale).name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
-                          </div>
-                        )}
                         <div className="flex items-start justify-between gap-4">
                           <div className="space-y-2 min-w-0">
                             {(() => {
@@ -3929,65 +3870,73 @@ export default function App() {
                               <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{aiResults.recommendations.length} {t('itemsFound')}</span>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              {aiResults.recommendations.map((rec, i) => (
-                                <motion.div 
-                                  key={i}
-                                  initial={{ opacity: 0, y: 20 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  transition={{ delay: i * 0.05 }}
-                                  className="bg-white p-4 md:p-6 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group overflow-hidden"
-                                >
-                                  <div className="aspect-[16/10] -m-1 mb-5 overflow-hidden rounded-[1.5rem] bg-stone-100 border border-stone-100">
-                                    <img
-                                      src={rec.image_url || buildAiFallbackImage(rec.name, rec.category, currentAreaLabel)}
-                                      alt={rec.name}
-                                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  </div>
-                                  <div className="flex items-start justify-between mb-5 gap-4">
-                                    <div>
-                                      <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">#{String(i + 1).padStart(2, '0')}</div>
-                                      <h4 className="mt-2 text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
-                                    </div>
-                                    <span className="text-[9px] font-black border border-stone-200 px-4 py-2 uppercase tracking-widest rounded-full bg-stone-50">
-                                      {rec.category}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-5 line-clamp-3">{rec.reason}</p>
-                                  <button
-                                    onClick={() => {
-                                      setSelectedAiRecommendation(rec);
-                                      recordAiMetric(rec, 'view');
-                                    }}
-                                    className="mb-4 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-stone-500 hover:text-black transition-colors"
+                              {aiResults.recommendations.map((rec, i) => {
+                                const visual = aiRecommendationVisuals.get(createAiRecommendationVisualKey(rec, i));
+                                return (
+                                  <motion.div 
+                                    key={i}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: i * 0.05 }}
+                                    className="bg-white p-6 md:p-8 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group"
                                   >
-                                    <Info className="w-4 h-4" />
-                                    More
-                                  </button>
-                                  <div className="flex gap-3 mt-auto">
-                                    <button
-                                      onClick={() => handleAiViewOnMap(rec)}
-                                      className="flex-1 py-4 bg-stone-50 hover:bg-black hover:text-white text-black rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all border border-stone-100"
-                                    >
-                                      <MapPin className="w-3 h-3" />
-                                      {t('viewOnMap')}
-                                    </button>
-                                    <button
-                                      onClick={() => handleSaveAiRecommendation(rec)}
-                                      className={cn(
-                                        "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
-                                        aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng }))
-                                          ? "border-rose-200 bg-rose-50 text-rose-500"
-                                          : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
+                                    <div className="relative mb-6 overflow-hidden rounded-[1.6rem] border border-stone-100 bg-stone-50 aspect-[16/10]">
+                                      {visual?.imageUrl && (
+                                        <img
+                                          src={visual.imageUrl}
+                                          alt={rec.name}
+                                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                                          referrerPolicy="no-referrer"
+                                        />
                                       )}
-                                      title={t('saveAi')}
+                                      <div className="absolute left-3 top-3 inline-flex items-center rounded-full bg-white/88 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.24em] text-stone-500 backdrop-blur-sm">
+                                        {visual?.source === 'place' ? 'MILZ SPOT' : 'MILZ AI CARD'}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-start justify-between mb-6 gap-4">
+                                      <div>
+                                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">#{String(i + 1).padStart(2, '0')}</div>
+                                        <h4 className="mt-2 text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
+                                      </div>
+                                      <span className="text-[9px] font-black border border-stone-200 px-4 py-2 uppercase tracking-widest rounded-full bg-stone-50">
+                                        {rec.category}
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-5">{rec.reason}</p>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAiRecommendation(rec);
+                                        recordAiMetric(rec, 'view');
+                                      }}
+                                      className="mb-4 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-stone-500 hover:text-black transition-colors"
                                     >
-                                      <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng })) && "fill-current")} />
+                                      <Info className="w-4 h-4" />
+                                      More
                                     </button>
-                                  </div>
-                                </motion.div>
-                              ))}
+                                    <div className="flex gap-3 mt-auto">
+                                      <button
+                                        onClick={() => handleAiViewOnMap(rec)}
+                                        className="flex-1 py-4 bg-stone-50 hover:bg-black hover:text-white text-black rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all border border-stone-100"
+                                      >
+                                        <MapPin className="w-3 h-3" />
+                                        {t('viewOnMap')}
+                                      </button>
+                                      <button
+                                        onClick={() => handleSaveAiRecommendation(rec)}
+                                        className={cn(
+                                          "px-6 py-4 border rounded-2xl transition-all flex items-center justify-center",
+                                          aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng }))
+                                            ? "border-rose-200 bg-rose-50 text-rose-500"
+                                            : "border-stone-100 hover:border-black hover:bg-rose-50 hover:text-rose-500 text-stone-400"
+                                        )}
+                                        title={t('saveAi')}
+                                      >
+                                        <Heart className={cn("w-4 h-4", aiFavorites.some((item) => item.key === createAiFavoriteKey({ lat: rec.lat, lng: rec.lng })) && "fill-current")} />
+                                      </button>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
                             </div>
                           </section>
                         )}
@@ -6213,17 +6162,20 @@ CREATE POLICY "Users can delete own favorites" ON favorites FOR DELETE USING (au
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              {selectedAiRecommendation.image_url && (
-                <div className="overflow-hidden rounded-[1.75rem] border border-stone-100 bg-stone-100">
-                  <img
-                    src={selectedAiRecommendation.image_url}
-                    alt={selectedAiRecommendation.name}
-                    className="w-full aspect-[16/9] object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-              )}
               <div className="space-y-4">
+                {selectedAiRecommendationVisual?.imageUrl && (
+                  <div className="relative overflow-hidden rounded-[1.75rem] border border-stone-100 bg-stone-50 aspect-[16/10]">
+                    <img
+                      src={selectedAiRecommendationVisual.imageUrl}
+                      alt={selectedAiRecommendation.name}
+                      className="h-full w-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute left-4 top-4 inline-flex items-center rounded-full bg-white/88 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.24em] text-stone-500 backdrop-blur-sm">
+                      {selectedAiRecommendationVisual.source === 'place' ? 'MILZ SPOT' : 'MILZ AI CARD'}
+                    </div>
+                  </div>
+                )}
                 <p className="text-base md:text-lg font-semibold text-stone-700 leading-relaxed">{selectedAiRecommendation.reason}</p>
                 <div className="rounded-[1.5rem] border border-stone-100 bg-stone-50 p-5 md:p-6 text-sm md:text-[15px] leading-relaxed text-stone-600 whitespace-pre-line">
                   {selectedAiRecommendation.details || selectedAiRecommendation.reason}
