@@ -718,13 +718,19 @@ const createAiFavoriteSlug = (value?: string | null) => {
   return normalized || 'spot';
 };
 
+const AI_FAVORITE_COORD_PRECISION = 3;
+
 const createAiFavoriteKey = (rec: { lat: number; lng: number; name?: string; area_key?: string; city_name?: string }) => {
   const normalized = normalizeMapCoords(rec.lat, rec.lng);
   const lat = normalized?.lat ?? Number(rec.lat) ?? 0;
   const lng = normalized?.lng ?? Number(rec.lng) ?? 0;
   const areaKey = rec.area_key || inferAreaKeyFromCoords(lat, lng) || 'unknown';
   const cityKey = createAiFavoriteSlug(rec.city_name || 'all');
-  return `ai::${areaKey}::${cityKey}::${lat.toFixed(4)}::${lng.toFixed(4)}`;
+  return `ai::${areaKey}::${cityKey}::${lat.toFixed(AI_FAVORITE_COORD_PRECISION)}::${lng.toFixed(AI_FAVORITE_COORD_PRECISION)}`;
+};
+
+const createAiFavoriteClusterKey = (rec: { lat: number; lng: number; area_key?: string; city_name?: string }) => {
+  return createAiFavoriteKey(rec);
 };
 
 
@@ -778,10 +784,14 @@ const areAiFavoritesEquivalent = (
   if (leftArea !== rightArea) return false;
   if (!areAiFavoriteCitiesEquivalent(left.city_name, right.city_name)) return false;
 
+  if (createAiFavoriteClusterKey({ lat: leftCoords.lat, lng: leftCoords.lng, area_key: leftArea, city_name: left.city_name }) === createAiFavoriteClusterKey({ lat: rightCoords.lat, lng: rightCoords.lng, area_key: rightArea, city_name: right.city_name })) {
+    return true;
+  }
+
   const exactCoords = Math.abs(leftCoords.lat - rightCoords.lat) <= 0.00015 && Math.abs(leftCoords.lng - rightCoords.lng) <= 0.00015;
   if (exactCoords) return true;
 
-  const nearby = getDistanceMeters(leftCoords, rightCoords) <= 40;
+  const nearby = getDistanceMeters(leftCoords, rightCoords) <= 120;
   if (!nearby) return false;
 
   const leftNames = getAiFavoriteAllNames(left).map(normalizeAiComparisonName).filter(Boolean);
@@ -789,7 +799,7 @@ const areAiFavoritesEquivalent = (
   const nameMatches = leftNames.some((name) => rightNames.includes(name));
   if (nameMatches) return true;
 
-  return Boolean(left.category && right.category && left.category === right.category && exactCoords);
+  return Boolean(left.category && right.category && left.category === right.category);
 };
 
 const findMatchingAiFavoriteItem = (
@@ -2204,24 +2214,32 @@ export default function App() {
         }
       });
 
-      const dbItems = groups
-        .map((group) => mergeAiFavoriteItems(group.rows)[0])
+      const dbItems = mergeAiFavoriteItems(rows)
         .filter((item): item is AiFavoriteItem => !!item);
 
       if (dbItems.length > 0) {
         setAiFavorites(dbItems);
         persistLocal(dbItems);
 
-        const duplicateIds = groups.flatMap((group) => group.rows.slice(1).map((row) => row.id).filter(Boolean)) as string[];
+        const duplicateGroups = new Map<string, AiFavoriteRow[]>();
+        rows.forEach((row) => {
+          const item = mapAiFavoriteRowToItem(row);
+          if (!item) return;
+          const clusterKey = createAiFavoriteClusterKey(item);
+          duplicateGroups.set(clusterKey, [...(duplicateGroups.get(clusterKey) || []), row]);
+        });
+
+        const duplicateIds = Array.from(duplicateGroups.values()).flatMap((groupRows) => groupRows.slice(1).map((row) => row.id).filter(Boolean)) as string[];
         if (duplicateIds.length > 0) {
           try {
-            await Promise.all(groups.map(async (group) => {
-              if (group.rows.length <= 1 || !group.keepRow.id) return;
-              const mergedItem = mergeAiFavoriteItems(group.rows)[0];
-              if (!mergedItem) return;
+            await Promise.all(Array.from(duplicateGroups.values()).map(async (groupRows) => {
+              if (groupRows.length <= 1) return;
+              const mergedItem = mergeAiFavoriteItems(groupRows)[0];
+              const keepRow = groupRows[0];
+              if (!mergedItem || !keepRow?.id) return;
               const payload = mapAiFavoriteItemToRow(mergedItem, user.id);
               const { id: _ignored, ...updatePayload } = payload as any;
-              await client.from(AI_FAVORITES_TABLE).update(updatePayload).eq('id', group.keepRow.id);
+              await client.from(AI_FAVORITES_TABLE).update(updatePayload).eq('id', keepRow.id);
             }));
             await client.from(AI_FAVORITES_TABLE).delete().in('id', duplicateIds);
           } catch (cleanupError) {
@@ -2239,7 +2257,7 @@ export default function App() {
         const payload = legacyItems.map((item) => mapAiFavoriteItemToRow(item, user.id));
         const { error: migrateError } = await client
           .from(AI_FAVORITES_TABLE)
-          .upsert(payload, { onConflict: 'user_id,favorite_key' });
+          .upsert(payload, { onConflict: 'user_id,canonical_key' });
 
         if (migrateError) {
           console.error('Failed to migrate legacy AI favorites into ai_favorites:', migrateError);
@@ -3040,7 +3058,7 @@ export default function App() {
   const upsertAiFavorite = React.useCallback(async (item: AiFavoriteItem) => {
     if (!user?.id) return false;
 
-    const nextLocal = mergeAiFavoriteItems([item, ...aiFavorites.filter((existing) => existing.key !== item.key)]);
+    const nextLocal = mergeAiFavoriteItems([item, ...aiFavorites.filter((existing) => !areAiFavoritesEquivalent(existing, item))]);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(nextLocal));
     }
@@ -3049,9 +3067,10 @@ export default function App() {
     if (!client) return true;
 
     try {
+      const payload = mapAiFavoriteItemToRow(item, user.id);
       const { error } = await client
         .from(AI_FAVORITES_TABLE)
-        .upsert(mapAiFavoriteItemToRow(item, user.id), { onConflict: 'user_id,canonical_key' });
+        .upsert(payload, { onConflict: 'user_id,canonical_key' });
 
       if (error) {
         console.error('Failed to persist AI favorite:', error);
@@ -3065,10 +3084,13 @@ export default function App() {
     return true;
   }, [aiFavorites, user?.id]);
 
-  const removeAiFavorite = React.useCallback(async (key: string) => {
+  const removeAiFavorite = React.useCallback(async (target: AiFavoriteItem) => {
     if (!user?.id) return false;
 
-    const nextLocal = aiFavorites.filter((item) => item.key !== key);
+    const localMatches = aiFavorites.filter((item) => areAiFavoritesEquivalent(item, target));
+    const matchedKeys = new Set(localMatches.map((item) => item.key));
+    matchedKeys.add(target.key);
+    const nextLocal = aiFavorites.filter((item) => !matchedKeys.has(item.key) && !areAiFavoritesEquivalent(item, target));
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(`${AI_FAVORITES_STORAGE_PREFIX}${user.id}`, JSON.stringify(nextLocal));
     }
@@ -3077,14 +3099,33 @@ export default function App() {
     if (!client) return true;
 
     try {
-      const { error } = await client
+      const { data, error } = await client
         .from(AI_FAVORITES_TABLE)
-        .delete()
-        .eq('user_id', user.id)
-        .eq('canonical_key', key);
+        .select('*')
+        .eq('user_id', user.id);
 
       if (error) {
-        console.error('Failed to remove AI favorite:', error);
+        console.error('Failed to load AI favorites before removal:', error);
+        return false;
+      }
+
+      const matchedIds = ((data || []) as AiFavoriteRow[])
+        .filter((row) => {
+          const item = mapAiFavoriteRowToItem(row);
+          return item ? areAiFavoritesEquivalent(item, target) : false;
+        })
+        .map((row) => row.id)
+        .filter(Boolean) as string[];
+
+      if (!matchedIds.length) return true;
+
+      const { error: deleteError } = await client
+        .from(AI_FAVORITES_TABLE)
+        .delete()
+        .in('id', matchedIds);
+
+      if (deleteError) {
+        console.error('Failed to remove AI favorite:', deleteError);
         return false;
       }
     } catch (error) {
@@ -3152,7 +3193,7 @@ export default function App() {
     setAiFavorites(next);
 
     const persisted = exists
-      ? await removeAiFavorite(existingMatch!.key)
+      ? await removeAiFavorite(existingMatch!)
       : await upsertAiFavorite(favoriteItem);
 
     if (!persisted) {
