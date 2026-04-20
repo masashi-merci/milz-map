@@ -336,6 +336,8 @@ interface AiFavoriteItem {
   created_at: string;
   translations?: Partial<Record<Locale, AiFavoriteTranslation>>;
   details?: string;
+  area_key?: string;
+  city_name?: string;
 }
 
 
@@ -667,6 +669,8 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
           [itemLocale]: translation,
         },
         details: translation.details || item?.details || item?.reason || '',
+        area_key: item?.area_key || undefined,
+        city_name: item?.city_name || undefined,
       });
       return;
     }
@@ -689,6 +693,8 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       reason: entry.reason || translation.reason,
       category: entry.category || translation.category,
       details: entry.details || translation.details || entry.reason,
+      area_key: entry.area_key || item?.area_key || undefined,
+      city_name: entry.city_name || item?.city_name || undefined,
     });
   });
 
@@ -964,6 +970,28 @@ export default function App() {
   const [aiLeaderboard, setAiLeaderboard] = useState<AiRecommendationMetric[]>([]);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const [selectedPlaceForDetail, setSelectedPlaceForDetail] = useState<Place | null>(null);
+
+  const openPlaceDetail = React.useCallback((target: Place | string | null | undefined) => {
+    if (!target) {
+      setSelectedPlaceForDetail(null);
+      return;
+    }
+
+    const resolved = typeof target === 'string'
+      ? places.find((place) => place.id === target)
+      : places.find((place) => place.id === target.id) || target;
+
+    if (!resolved) return;
+
+    setSelectedPlaceForDetail({
+      ...resolved,
+      images: [...(resolved.images || [])],
+      videos: [...(resolved.videos || [])],
+      pdfs: [...(resolved.pdfs || [])],
+      reviews: [...(resolved.reviews || [])],
+      badges: [...(resolved.badges || [])],
+    });
+  }, [places]);
   const [isEditingDetail, setIsEditingDetail] = useState(false);
   const [editDetailForm, setEditDetailForm] = useState<Partial<Place>>({});
   const [isUpdatingDetail, setIsUpdatingDetail] = useState(false);
@@ -1109,6 +1137,85 @@ export default function App() {
 
   const mapRef = useRef<MapNavigator | null>(null);
   const t = (key: string) => uiCopy[locale][key] ?? key;
+  const addSpotCopy = locale === 'jp'
+    ? {
+        editTitle: 'スポットを編集',
+        addTitle: '新しいスポットを追加',
+        selectOnMap: '地図をタップするか、下の住所検索で場所を指定してください。',
+        or: 'または',
+        enterAddress: '住所検索',
+        enterAddressPlaceholder: '例: 東京都港区芝公園1-1-1',
+        cancel: 'キャンセル',
+        spotName: 'スポット名',
+        spotNamePlaceholder: '例: Blue Bottle Coffee',
+        mainPhoto: 'メイン写真',
+        uploadHelp: 'このスポットのメイン画像をアップロードしてください。',
+        editorialTip: '編集メモ:',
+        editorialTipText: '色味の良い写真がMILZの雰囲気に合います。',
+        category: 'カテゴリー / マーカー',
+        categoryHint: '地図上のアイコンは、このカテゴリ設定にあわせて自動で切り替わります。',
+        area: 'エリア',
+        city: '市区町村',
+        addressDetail: '住所詳細',
+        addressDetailPlaceholder: '番地・建物名まで入力',
+        addressDetailHint: '市区町村の次の住所まで入力してください。例: 神南1-19-11 パークウェースクエア2',
+        website: 'Webサイト',
+        badges: 'バッジ',
+        shortDescription: '短い説明',
+        shortDescriptionPlaceholder: '一文でまとめた紹介文...',
+        editorialContent: '編集コンテンツ',
+        milzExperience: 'Milz Experience（ストーリー）',
+        milzExperiencePlaceholder: 'レポーターの視点で、この場所の魅力を書いてください。詳細画面の主な紹介文になります。',
+        detailedDescription: '詳細説明（補足）',
+        detailedDescriptionPlaceholder: '補足情報や背景など...',
+        galleryPhotos: 'ギャラリー写真（URLをカンマ区切り）',
+        galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
+        videos: 'ショート動画 / 動画URL（1行ずつ）',
+        videosPlaceholder: 'https://youtube.com/shorts/...',
+        pdfs: 'PDF資料（name|url をカンマ区切り）',
+        pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
+        publish: 'スポットを公開',
+        update: 'スポットを更新',
+      }
+    : {
+        editTitle: 'Edit Spot',
+        addTitle: 'Add New Spot',
+        selectOnMap: 'Tap anywhere on the map, or search by address below.',
+        or: 'OR',
+        enterAddress: 'Enter Address',
+        enterAddressPlaceholder: 'e.g. 1-1-1 Shiba-koen, Minato-ku, Tokyo',
+        cancel: 'Cancel',
+        spotName: 'Spot Name',
+        spotNamePlaceholder: 'e.g. Blue Bottle Coffee',
+        mainPhoto: 'Main Photo',
+        uploadHelp: 'Upload the primary image for this spot.',
+        editorialTip: 'Editorial Tip:',
+        editorialTipText: 'High quality color photos work best for the Milz aesthetic.',
+        category: 'Category / Marker',
+        categoryHint: 'Map markers automatically follow the selected category.',
+        area: 'Area',
+        city: 'City / Ward',
+        addressDetail: 'Street Address',
+        addressDetailPlaceholder: 'Enter street / building details',
+        addressDetailHint: 'Please enter the street-level address after selecting the city or ward.',
+        website: 'Website',
+        badges: 'Badges',
+        shortDescription: 'Short Description',
+        shortDescriptionPlaceholder: 'A one-sentence summary...',
+        editorialContent: 'Editorial Content',
+        milzExperience: 'Milz Experience (The Story)',
+        milzExperiencePlaceholder: "Write the reporter's curated impression here. This will be the main feature of the detail view.",
+        detailedDescription: 'Detailed Description (Fallback)',
+        detailedDescriptionPlaceholder: 'Additional background info...',
+        galleryPhotos: 'Gallery Photos (Comma separated URLs)',
+        galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
+        videos: 'Shorts / Video URLs (one per line)',
+        videosPlaceholder: 'https://youtube.com/shorts/...',
+        pdfs: 'PDF Files (name|url, comma separated)',
+        pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
+        publish: 'Publish Spot',
+        update: 'Update Spot',
+      };
   const mapStyleOptions: { key: MapThemeKey; label: string }[] = [
     { key: 'original', label: 'Original' },
     { key: 'style2', label: 'Style2' },
@@ -1818,7 +1925,7 @@ export default function App() {
       }
     } catch (error) {
       console.error('Modal geocoding error:', error);
-      showToast("Could not find location for this address.", "error");
+      showToast(locale === 'jp' ? 'この住所から場所を見つけられませんでした。' : 'Could not find location for this address.', "error");
     } finally {
       setIsGeocoding(false);
     }
@@ -1928,6 +2035,7 @@ export default function App() {
     setEditingPlace(place);
     setNewPlacePos({ lat: place.lat, lng: place.lng });
     setPreviewImage(place.image_url || null);
+    setModalAddress(place.address || '');
     setIsAdding(true);
   };
 
@@ -2093,11 +2201,18 @@ export default function App() {
     const description = formData.get('description') as string || (document.querySelector('textarea[name="description"]') as HTMLTextAreaElement)?.value;
     const category = (formData.get('category') as any) || (document.querySelector('select[name="category"]') as HTMLSelectElement)?.value || 'その他';
     const website_url = formData.get('website_url') as string || (document.querySelector('input[name="website_url"]') as HTMLInputElement)?.value;
+    const address = formData.get('address') as string || (document.querySelector('input[name="address"]') as HTMLInputElement)?.value;
     const activeArea = findAreaOption(placeEditorAreaKey);
     const selectedEditorCity = placeEditorCityName || activeArea.cities[0]?.name || '';
 
     if (!name) {
-      showToast("スポット名を入力してください。", "error");
+      showToast(locale === 'jp' ? 'スポット名を入力してください。' : 'Please enter the spot name.', "error");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!address?.trim()) {
+      showToast(locale === 'jp' ? '市区町村の次の住所まで入力してください。' : 'Please enter the street-level address after the city/ward.', 'error');
       setIsSubmitting(false);
       return;
     }
@@ -2198,6 +2313,7 @@ export default function App() {
         country: activeArea.countryName,
         prefecture: activeArea.stateName,
         municipality: selectedEditorCity || null,
+        address: address?.trim() || null,
         lat: newPlacePos.lat,
         lng: newPlacePos.lng,
         website_url: website_url || null,
@@ -2300,63 +2416,99 @@ export default function App() {
 
 
   const fetchAiLeaderboard = React.useCallback(async (areaKey?: string, cityName?: string, fallbackItems?: AIResults['recommendations']) => {
+    const targetAreaKey = areaKey || locationFilter.areaKey;
+    const targetCityName = cityName || locationFilter.cityName;
+    const fallbackList = fallbackItems || aiResults?.recommendations || [];
+    const fallbackMap = new Map(fallbackList.map((item) => [createAiFavoriteKey(item), item]));
+    const merged = new Map<string, AiRecommendationMetric>();
+
+    const addRow = (row: Partial<AiRecommendationMetric> & { recommendation_name: string; lat: number; lng: number }) => {
+      const key = createAiFavoriteKey({ lat: row.lat, lng: row.lng });
+      const existing = merged.get(key);
+      const next: AiRecommendationMetric = {
+        id: existing?.id || row.id || key,
+        area_key: row.area_key || existing?.area_key || targetAreaKey,
+        city_name: row.city_name ?? existing?.city_name ?? targetCityName ?? null,
+        recommendation_name: row.recommendation_name,
+        category: row.category || existing?.category || 'AI Recommendation',
+        lat: row.lat,
+        lng: row.lng,
+        view_count: Math.max(existing?.view_count || 0, row.view_count || 0),
+        favorite_count: Math.max(existing?.favorite_count || 0, row.favorite_count || 0),
+        details: row.details || existing?.details || '',
+      };
+      merged.set(key, next);
+    };
+
     const client = getSupabase();
-    if (!client) {
-      const localItems = (fallbackItems || aiResults?.recommendations || []).slice(0, 5).map((item, index) => ({
-        id: `${item.name}-${index}`,
-        area_key: areaKey || locationFilter.areaKey,
-        city_name: cityName || locationFilter.cityName,
-        recommendation_name: item.name,
-        category: item.category,
+    if (client) {
+      try {
+        let query = client
+          .from('ai_recommendation_metrics')
+          .select('*')
+          .eq('area_key', targetAreaKey)
+          .order('favorite_count', { ascending: false })
+          .order('view_count', { ascending: false })
+          .limit(20);
+
+        if (targetCityName) {
+          query = query.eq('city_name', targetCityName);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        ((data || []) as AiRecommendationMetric[]).forEach(addRow);
+      } catch (error) {
+        console.error('Failed to fetch AI leaderboard:', error);
+      }
+    }
+
+    aiFavorites.forEach((item) => {
+      const fallbackMatch = fallbackMap.get(item.key);
+      const areaMatches = item.area_key
+        ? item.area_key === targetAreaKey
+        : Boolean(fallbackMatch);
+      const cityMatches = targetCityName
+        ? (item.city_name ? item.city_name === targetCityName : Boolean(fallbackMatch))
+        : true;
+
+      if (!areaMatches || !cityMatches) return;
+
+      addRow({
+        recommendation_name: getAiFavoriteDisplay(item, locale).name,
+        category: getAiFavoriteDisplay(item, locale).category,
         lat: item.lat,
         lng: item.lng,
-        view_count: Math.max(5 - index, 1),
-        favorite_count: 0,
-        details: item.details || item.reason,
-      }));
-      setAiLeaderboard(localItems);
-      return;
+        details: getAiFavoriteDisplay(item, locale).details || getAiFavoriteDisplay(item, locale).reason,
+        favorite_count: (merged.get(item.key)?.favorite_count || 0) + 1,
+        view_count: merged.get(item.key)?.view_count || 0,
+        area_key: item.area_key || targetAreaKey,
+        city_name: item.city_name || targetCityName || null,
+      });
+    });
+
+    if (!merged.size) {
+      fallbackList.slice(0, 5).forEach((item, index) => {
+        addRow({
+          recommendation_name: item.name,
+          category: item.category,
+          lat: item.lat,
+          lng: item.lng,
+          view_count: Math.max(5 - index, 1),
+          favorite_count: 0,
+          details: item.details || item.reason,
+          area_key: targetAreaKey,
+          city_name: targetCityName || null,
+        });
+      });
     }
 
-    try {
-      let query = client
-        .from('ai_recommendation_metrics')
-        .select('*')
-        .eq('area_key', areaKey || locationFilter.areaKey)
-        .order('favorite_count', { ascending: false })
-        .order('view_count', { ascending: false })
-        .limit(5);
+    const ranked = Array.from(merged.values())
+      .sort((a, b) => (b.favorite_count - a.favorite_count) || (b.view_count - a.view_count) || a.recommendation_name.localeCompare(b.recommendation_name))
+      .slice(0, 5);
 
-      if (cityName) {
-        query = query.eq('city_name', cityName);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const rows = (data || []) as AiRecommendationMetric[];
-      if (rows.length) {
-        setAiLeaderboard(rows);
-        return;
-      }
-    } catch (error) {
-      console.error('Failed to fetch AI leaderboard:', error);
-    }
-
-    const localItems = (fallbackItems || aiResults?.recommendations || []).slice(0, 5).map((item, index) => ({
-      id: `${item.name}-${index}`,
-      area_key: areaKey || locationFilter.areaKey,
-      city_name: cityName || locationFilter.cityName,
-      recommendation_name: item.name,
-      category: item.category,
-      lat: item.lat,
-      lng: item.lng,
-      view_count: Math.max(5 - index, 1),
-      favorite_count: 0,
-      details: item.details || item.reason,
-    }));
-    setAiLeaderboard(localItems);
-  }, [aiResults?.recommendations, locationFilter.areaKey, locationFilter.cityName]);
+    setAiLeaderboard(ranked);
+  }, [aiFavorites, aiResults?.recommendations, locale, locationFilter.areaKey, locationFilter.cityName]);
 
   const recordAiMetric = React.useCallback(async (rec: { name: string; category: string; lat: number; lng: number; details?: string }, action: 'view' | 'favorite') => {
     const client = getSupabase();
@@ -2454,6 +2606,8 @@ export default function App() {
             lat: normalizedRec.lat,
             lng: normalizedRec.lng,
             created_at: new Date().toISOString(),
+            area_key: locationFilter.areaKey,
+            city_name: locationFilter.cityName || undefined,
             translations: {
               [locale]: {
                 name: normalizedRec.name,
@@ -2493,7 +2647,7 @@ export default function App() {
 
   const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
     setPendingMapFocus(coords);
-    setSelectedPlaceForDetail(null);
+    openPlaceDetail(null);
     setActiveTab('map');
   };
 
@@ -3083,7 +3237,7 @@ export default function App() {
                   setIsAdding={setIsAdding}
                   setMapBounds={setMapBounds}
                   mapRef={mapRef}
-                  onSelectPlace={setSelectedPlaceForDetail}
+                  onSelectPlace={openPlaceDetail}
                   focusTarget={pendingMapFocus}
                   onFocusHandled={() => setPendingMapFocus(null)}
                 />
@@ -3156,7 +3310,8 @@ export default function App() {
                             
                             <div className="pt-1">
                               <button 
-                                onClick={() => setSelectedPlaceForDetail(place)}
+                                type="button"
+                                onClick={() => openPlaceDetail(place)}
                                 className="w-full py-3 bg-black text-white text-[10px] font-bold uppercase tracking-[0.15em] rounded-xl flex items-center justify-center gap-2 hover:bg-stone-800 transition-all active:scale-[0.98]"
                               >
                                 Details
@@ -3414,7 +3569,8 @@ export default function App() {
                               )}
 
                               <button
-                                onClick={() => setSelectedPlaceForDetail(place)}
+                                type="button"
+                                onClick={() => openPlaceDetail(place)}
                                 className="px-4 py-3 bg-black text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-2 hover:bg-stone-800 transition-all"
                               >
                                 Details
@@ -3807,7 +3963,8 @@ export default function App() {
                                 {t('viewOnMap')}
                               </button>
                               <button
-                                onClick={() => setSelectedPlaceForDetail(places.find((place) => place.id === item.placeId) || null)}
+                                type="button"
+                                onClick={() => openPlaceDetail(item.placeId)}
                                 className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-[10px] font-black uppercase tracking-[0.22em] hover:bg-stone-100 transition-all"
                               >
                                 <ArrowUpRight className="w-4 h-4" />
@@ -3862,7 +4019,8 @@ export default function App() {
                                 {t('viewOnMap')}
                               </button>
                               <button
-                                onClick={() => setSelectedPlaceForDetail(places.find((place) => place.id === item.placeId) || null)}
+                                type="button"
+                                onClick={() => openPlaceDetail(item.placeId)}
                                 className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-black text-[10px] font-black uppercase tracking-[0.22em] hover:bg-stone-100 transition-all"
                               >
                                 <ArrowUpRight className="w-4 h-4" />
@@ -4059,8 +4217,9 @@ export default function App() {
                       <div className="grid gap-3 sm:grid-cols-2">
                         {favoritePlaces.slice(0, 6).map((place) => (
                           <button
+                            type="button"
                             key={place.id}
-                            onClick={() => setSelectedPlaceForDetail(place)}
+                            onClick={() => openPlaceDetail(place)}
                             className="group text-left rounded-[1.6rem] overflow-hidden border border-stone-200 bg-stone-50 hover:border-black transition-all"
                           >
                             <div className="aspect-[16/10] bg-stone-200 overflow-hidden">
@@ -4491,7 +4650,7 @@ export default function App() {
             >
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-black uppercase tracking-tighter">
-                  {editingPlace ? 'Edit Spot' : 'Add New Spot'}
+                  {editingPlace ? addSpotCopy.editTitle : addSpotCopy.addTitle}
                 </h2>
                 <button onClick={closeAddModal} className="p-2 hover:bg-stone-100 transition-colors">
                   <X className="w-6 h-6 text-black" />
@@ -4504,24 +4663,24 @@ export default function App() {
                     <div className="w-16 h-16 bg-stone-50 flex items-center justify-center mx-auto">
                       <MapPinned className="w-8 h-8 text-stone-300" />
                     </div>
-                    <p className="text-stone-500 font-medium text-sm">Tap anywhere on the map, or search by address below.</p>
+                    <p className="text-stone-500 font-medium text-sm">{addSpotCopy.selectOnMap}</p>
                   </div>
 
                   <div className="relative flex items-center">
                     <div className="flex-1 h-px bg-stone-100"></div>
-                    <span className="px-4 text-[10px] font-black text-stone-300 uppercase tracking-widest">OR</span>
+                    <span className="px-4 text-[10px] font-black text-stone-300 uppercase tracking-widest">{addSpotCopy.or}</span>
                     <div className="flex-1 h-px bg-stone-100"></div>
                   </div>
 
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Enter Address</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.enterAddress}</label>
                       <div className="flex gap-0">
                         <input 
                           type="text"
                           value={modalAddress}
                           onChange={(e) => setModalAddress(e.target.value)}
-                          placeholder="e.g. 1-1-1 Shiba-koen, Minato-ku, Tokyo"
+                          placeholder={addSpotCopy.enterAddressPlaceholder}
                           className="flex-1 px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium"
                           onKeyDown={(e) => e.key === 'Enter' && handleModalAddressSearch()}
                         />
@@ -4540,25 +4699,25 @@ export default function App() {
                     onClick={closeAddModal}
                     className="w-full py-4 text-[10px] font-black text-stone-400 hover:text-black transition-colors uppercase tracking-widest"
                   >
-                    CANCEL
+                    {addSpotCopy.cancel}
                   </button>
                 </div>
               ) : (
                 <form onSubmit={handleAddPlace} className="space-y-8">
                   <div className="space-y-6">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Spot Name</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.spotName}</label>
                       <input 
                         name="name"
                         required
                         defaultValue={editingPlace?.name}
-                        placeholder="e.g. Blue Bottle Coffee"
+                        placeholder={addSpotCopy.spotNamePlaceholder}
                         className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Main Photo</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.mainPhoto}</label>
                       <div className="flex items-center gap-6">
                         <div className="relative w-32 h-32 bg-stone-50 border border-stone-200 flex items-center justify-center group overflow-hidden">
                           {previewImage ? (
@@ -4574,15 +4733,15 @@ export default function App() {
                           />
                         </div>
                         <div className="flex-1 text-[11px] text-stone-400 font-medium leading-relaxed">
-                          Upload the primary image for this spot. <br/>
-                          <span className="text-black">Editorial Tip:</span> High quality color photos work best for the Milz aesthetic.
+                          {addSpotCopy.uploadHelp} <br/>
+                          <span className="text-black">{addSpotCopy.editorialTip}</span> {addSpotCopy.editorialTipText}
                         </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category / Marker</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.category}</label>
                         <select 
                           name="category"
                           defaultValue={editingPlace?.category || 'その他'}
@@ -4592,10 +4751,10 @@ export default function App() {
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
                         </select>
-                        <p className="text-[10px] text-stone-400 leading-relaxed px-1">地図上のアイコンは、このカテゴリ設定にあわせて自動で切り替わります。</p>
+                        <p className="text-[10px] text-stone-400 leading-relaxed px-1">{addSpotCopy.categoryHint}</p>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Area</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.area}</label>
                         <select
                           value={placeEditorAreaKey}
                           onChange={(e) => {
@@ -4611,7 +4770,7 @@ export default function App() {
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">City / Ward</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.city}</label>
                         <select
                           value={placeEditorCityName}
                           onChange={(e) => setPlaceEditorCityName(e.target.value)}
@@ -4622,8 +4781,19 @@ export default function App() {
                           ))}
                         </select>
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Website</label>
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.addressDetail}</label>
+                        <input 
+                          name="address"
+                          required
+                          defaultValue={editingPlace?.address || modalAddress || ''}
+                          placeholder={addSpotCopy.addressDetailPlaceholder}
+                          className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium"
+                        />
+                        <p className="text-[10px] text-stone-400 leading-relaxed px-1">{addSpotCopy.addressDetailHint}</p>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.website}</label>
                         <input 
                           name="website_url"
                           defaultValue={editingPlace?.website_url || ''}
@@ -4634,7 +4804,7 @@ export default function App() {
                     </div>
 
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Badges</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.badges}</label>
                       <div className="flex flex-wrap gap-2">
                         {badgeOptions.map((badge) => {
                           const isActive = placeEditorBadges.includes(badge);
@@ -4656,48 +4826,48 @@ export default function App() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Short Description</label>
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.shortDescription}</label>
                       <textarea 
                         name="description"
                         rows={2}
                         defaultValue={editingPlace?.description || ''}
-                        placeholder="A one-sentence summary..."
+                        placeholder={addSpotCopy.shortDescriptionPlaceholder}
                         className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                       />
                     </div>
 
                     <div className="space-y-8 pt-8 border-t border-stone-100">
-                      <h3 className="text-[10px] font-black text-black uppercase tracking-[0.3em] px-1">Editorial Content</h3>
+                      <h3 className="text-[10px] font-black text-black uppercase tracking-[0.3em] px-1">{addSpotCopy.editorialContent}</h3>
                       
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Milz Experience (The Story)</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.milzExperience}</label>
                         <textarea 
                           name="milz_experience"
                           rows={6}
                           defaultValue={editingPlace?.milz_experience || ''}
-                          placeholder="Write the reporter's curated impression here. This will be the main feature of the detail view."
+                          placeholder={addSpotCopy.milzExperiencePlaceholder}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none leading-relaxed"
                         />
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Detailed Description (Fallback)</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.detailedDescription}</label>
                         <textarea 
                           name="detailed_description"
                           rows={4}
                           defaultValue={editingPlace?.detailed_description || ''}
-                          placeholder="Additional background info..."
+                          placeholder={addSpotCopy.detailedDescriptionPlaceholder}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                         />
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Gallery Photos (Comma separated URLs)</label>
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.galleryPhotos}</label>
                         <textarea 
                           name="images"
                           rows={2}
                           defaultValue={editingPlace?.images?.join(', ') || ''}
-                          placeholder="https://url1.com, https://url2.com..."
+                          placeholder={addSpotCopy.galleryPhotosPlaceholder}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                         />
                       </div>
@@ -4738,7 +4908,7 @@ export default function App() {
                           <Loader2 className="w-5 h-5 animate-spin" />
                           PROCESSING...
                         </>
-                      ) : (editingPlace ? 'UPDATE SPOT' : 'PUBLISH SPOT')}
+                      ) : (editingPlace ? addSpotCopy.update : addSpotCopy.publish)}
                     </button>
                     {!editingPlace && (
                       <button 
@@ -4851,7 +5021,7 @@ export default function App() {
                           <button 
                             onClick={() => {
                               handleDeletePlace(selectedPlaceForDetail.id);
-                              setSelectedPlaceForDetail(null);
+                              openPlaceDetail(null);
                             }}
                             className="w-16 h-16 bg-rose-500 text-white rounded-full flex items-center justify-center hover:bg-rose-600 transition-all active:scale-95 shadow-2xl z-20"
                           >
