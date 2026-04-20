@@ -228,6 +228,63 @@ function VideoEmbed({ url, title }: { url: string; title: string }) {
   );
 }
 
+function inferMediaTypeFromUrl(url?: string | null): 'image' | 'video' {
+  const value = (url || '').toLowerCase();
+  if (!value) return 'image';
+  if (extractYouTubeVideoId(value) || /\.(mp4|mov|webm|m4v)(\?|$)/i.test(value)) {
+    return 'video';
+  }
+  return 'image';
+}
+
+function DetailMiniMap({
+  lat,
+  lng,
+  name,
+  onOpenMap,
+}: {
+  lat: number;
+  lng: number;
+  name: string;
+  onOpenMap: () => void;
+}) {
+  return (
+    <div className="aspect-square border border-stone-200 overflow-hidden rounded-[28px] bg-stone-100 relative group">
+      <MapContainer
+        key={`${lat}-${lng}-${name}`}
+        center={[lat, lng]}
+        zoom={15}
+        className="w-full h-full"
+        zoomControl={false}
+        attributionControl={false}
+        dragging={false}
+        scrollWheelZoom={false}
+        doubleClickZoom={false}
+        touchZoom={false}
+        keyboard={false}
+      >
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <Marker position={[lat, lng]}>
+          <Popup>{name}</Popup>
+        </Marker>
+      </MapContainer>
+      <div className="absolute inset-x-4 bottom-4 p-4 bg-white/92 backdrop-blur-sm border border-stone-200 rounded-2xl flex items-end justify-between gap-4 pointer-events-none">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-black">Mini Map</p>
+          <p className="text-[10px] font-mono text-stone-500">{lat.toFixed(4)}, {lng.toFixed(4)}</p>
+        </div>
+        <span className="text-[10px] font-black uppercase tracking-[0.25em] text-stone-400">Tap to open</span>
+      </div>
+      <button
+        type="button"
+        onClick={onOpenMap}
+        className="absolute inset-0 z-[400]"
+        aria-label={`Open ${name} on map`}
+      />
+    </div>
+  );
+}
+
 // Fix Leaflet icon issue
 // @ts-ignore
 delete L.Icon.Default.prototype._getIconUrl;
@@ -249,6 +306,15 @@ interface Review {
   text: string;
   date: string;
   images?: string[];
+}
+
+interface FromSpotItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  media_url?: string;
+  media_type?: 'image' | 'video';
 }
 
 interface Place {
@@ -276,6 +342,9 @@ interface Place {
   shorts_heading?: string;
   menu_heading?: string;
   menu_description?: string;
+  from_spot_heading?: string;
+  from_spot_intro?: string;
+  from_spot_items?: FromSpotItem[];
   visual_archive_label?: string;
   visual_archive_description?: string;
   back_to_map_label?: string;
@@ -1104,6 +1173,7 @@ export default function App() {
       pdfs: [...(resolved.pdfs || [])],
       reviews: [...(resolved.reviews || [])],
       badges: [...(resolved.badges || [])],
+      from_spot_items: [...(resolved.from_spot_items || [])],
     });
   }, [places]);
   const [isEditingDetail, setIsEditingDetail] = useState(false);
@@ -1123,6 +1193,13 @@ export default function App() {
   });
   const [showMapStyleMenu, setShowMapStyleMenu] = useState(false);
   const [expandedShortInfoId, setExpandedShortInfoId] = useState<string | null>(null);
+
+  const detailViewOnMapLabel = locale === 'jp' ? '地図で見る' : 'View on Map';
+  const detailMiniMapLabel = locale === 'jp' ? '同一ページで位置を確認できるミニマップです。' : 'Mini map for quick location context on the same page.';
+  const fromSpotHeadingDefault = locale === 'jp' ? 'From the Spot' : 'From the Spot';
+  const fromSpotIntroDefault = locale === 'jp'
+    ? '店長インタビュー、スタッフ紹介、現場の空気感などを写真や動画と一緒に残せるセクションです。'
+    : 'A place for interviews, staff notes, and on-site moments with photos or video.';
 
   const newPlacePosition = useMemo(() => newPlacePos ? [newPlacePos.lat, newPlacePos.lng] as L.LatLngExpression : null, [newPlacePos]);
   
@@ -1637,6 +1714,7 @@ export default function App() {
       hours: p.hours || '',
       reviews: p.reviews || [],
       badges: p.badges || [],
+      from_spot_items: p.from_spot_items || [],
       area_key: p.area_key || resolvePlaceAreaKey(p),
       area_label: p.area_label || findAreaOption(p.area_key || resolvePlaceAreaKey(p)).label,
       municipality: p.municipality || resolvePlaceCityName(p, p.area_key || resolvePlaceAreaKey(p)),
@@ -2281,6 +2359,27 @@ export default function App() {
     } catch (err: any) {
       console.error("handleFilesDrop Error:", err);
       showToast(`アップロード中にエラーが発生しました: ${err.message}`, "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFromSpotMediaDrop = async (itemId: string, files: File[]) => {
+    if (files.length === 0) return;
+    const file = files[0];
+    setUploading(true);
+    try {
+      const url = await uploadToR2(file);
+      const mediaType: 'image' | 'video' = file.type.startsWith('video/') ? 'video' : 'image';
+      setEditDetailForm((prev) => ({
+        ...prev,
+        from_spot_items: (prev.from_spot_items || []).map((item) => (
+          item.id === itemId ? { ...item, media_url: url, media_type: mediaType } : item
+        )),
+      }));
+      showToast(locale === 'jp' ? 'From the Spot の素材をアップロードしました。' : 'Uploaded media for From the Spot.', 'success');
+    } catch (error: any) {
+      showToast(error?.message || (locale === 'jp' ? 'アップロードに失敗しました。' : 'Upload failed.'), 'error');
     } finally {
       setUploading(false);
     }
@@ -5480,6 +5579,167 @@ export default function App() {
                       </section>
                     )}
 
+                    {/* From the Spot Section */}
+                    {(isEditingDetail || (selectedPlaceForDetail.from_spot_items && selectedPlaceForDetail.from_spot_items.length > 0)) && (
+                      <section className="space-y-12">
+                        <div className="flex items-center justify-between gap-6 flex-wrap">
+                          <div className="flex items-center gap-4">
+                            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-400">05</span>
+                            {isEditingDetail ? (
+                              <input
+                                type="text"
+                                value={editDetailForm.from_spot_heading || fromSpotHeadingDefault}
+                                onChange={(e) => setEditDetailForm({ ...editDetailForm, from_spot_heading: e.target.value })}
+                                className="bg-transparent text-4xl font-serif font-light tracking-tight text-black outline-none border-b border-stone-200 focus:border-black"
+                              />
+                            ) : (
+                              <h2 className="text-4xl font-serif font-light tracking-tight text-black">
+                                {selectedPlaceForDetail.from_spot_heading || fromSpotHeadingDefault}
+                              </h2>
+                            )}
+                          </div>
+                          {isEditingDetail && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextItems = [...(editDetailForm.from_spot_items || []), {
+                                  id: crypto.randomUUID(),
+                                  title: locale === 'jp' ? '新しいストーリー' : 'New story',
+                                  subtitle: locale === 'jp' ? 'Manager Interview' : 'Manager Interview',
+                                  description: '',
+                                  media_url: '',
+                                  media_type: 'image',
+                                } as FromSpotItem];
+                                setEditDetailForm({ ...editDetailForm, from_spot_items: nextItems });
+                              }}
+                              className="px-5 py-3 rounded-full border border-black text-[10px] font-black uppercase tracking-[0.25em] hover:bg-black hover:text-white transition-all"
+                            >
+                              {locale === 'jp' ? 'セクション追加' : 'Add story'}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-w-3xl">
+                          {isEditingDetail ? (
+                            <textarea
+                              value={editDetailForm.from_spot_intro || fromSpotIntroDefault}
+                              onChange={(e) => setEditDetailForm({ ...editDetailForm, from_spot_intro: e.target.value })}
+                              className="w-full bg-stone-50 border border-stone-200 p-5 text-sm text-stone-600 leading-relaxed font-medium outline-none focus:border-black transition-all resize-none rounded-2xl"
+                              rows={3}
+                            />
+                          ) : (
+                            <p className="text-sm text-stone-500 leading-relaxed font-medium">
+                              {selectedPlaceForDetail.from_spot_intro || fromSpotIntroDefault}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="space-y-8">
+                          {(isEditingDetail ? editDetailForm.from_spot_items : selectedPlaceForDetail.from_spot_items)?.map((item, index) => {
+                            const mediaType = item.media_type || inferMediaTypeFromUrl(item.media_url);
+                            return (
+                              <div key={item.id || index} className="grid grid-cols-1 md:grid-cols-2 gap-8 border border-stone-200 rounded-[28px] p-6 md:p-8 bg-white">
+                                <div className="space-y-4">
+                                  {isEditingDetail ? (
+                                    <>
+                                      <div className="grid grid-cols-1 gap-3">
+                                        <input
+                                          type="text"
+                                          value={item.title || ''}
+                                          onChange={(e) => setEditDetailForm({
+                                            ...editDetailForm,
+                                            from_spot_items: (editDetailForm.from_spot_items || []).map((entry) => entry.id === item.id ? { ...entry, title: e.target.value } : entry),
+                                          })}
+                                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all text-lg font-black"
+                                          placeholder={locale === 'jp' ? '見出し' : 'Story title'}
+                                        />
+                                        <input
+                                          type="text"
+                                          value={item.subtitle || ''}
+                                          onChange={(e) => setEditDetailForm({
+                                            ...editDetailForm,
+                                            from_spot_items: (editDetailForm.from_spot_items || []).map((entry) => entry.id === item.id ? { ...entry, subtitle: e.target.value } : entry),
+                                          })}
+                                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all text-sm font-semibold"
+                                          placeholder={locale === 'jp' ? '店長インタビュー / スタッフ紹介 など' : 'Manager interview / Staff pick'}
+                                        />
+                                      </div>
+                                      <textarea
+                                        value={item.description || ''}
+                                        onChange={(e) => setEditDetailForm({
+                                          ...editDetailForm,
+                                          from_spot_items: (editDetailForm.from_spot_items || []).map((entry) => entry.id === item.id ? { ...entry, description: e.target.value } : entry),
+                                        })}
+                                        className="w-full min-h-[180px] bg-stone-50 border border-stone-200 rounded-2xl p-4 text-sm text-stone-700 leading-relaxed outline-none focus:border-black transition-all resize-none"
+                                        placeholder={locale === 'jp' ? '現場の言葉や説明を入力' : 'Describe what is happening on-site.'}
+                                      />
+                                      <div className="grid grid-cols-1 gap-3">
+                                        <DropZone
+                                          label={locale === 'jp' ? '写真 / 動画をアップロード' : 'Upload photo / video'}
+                                          onFilesDrop={(files) => handleFromSpotMediaDrop(item.id, files)}
+                                          isLoading={uploading}
+                                          className="min-h-[160px]"
+                                          accept="image/*,video/*"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={item.media_url || ''}
+                                          onChange={(e) => setEditDetailForm({
+                                            ...editDetailForm,
+                                            from_spot_items: (editDetailForm.from_spot_items || []).map((entry) => entry.id === item.id ? { ...entry, media_url: e.target.value, media_type: inferMediaTypeFromUrl(e.target.value) } : entry),
+                                          })}
+                                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all text-xs font-medium"
+                                          placeholder={locale === 'jp' ? '画像または動画URL' : 'Image or video URL'}
+                                        />
+                                      </div>
+                                      <div className="flex justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditDetailForm({
+                                            ...editDetailForm,
+                                            from_spot_items: (editDetailForm.from_spot_items || []).filter((entry) => entry.id !== item.id),
+                                          })}
+                                          className="px-4 py-2 rounded-full border border-rose-200 text-rose-500 text-[10px] font-black uppercase tracking-[0.2em] hover:bg-rose-50 transition-all"
+                                        >
+                                          {locale === 'jp' ? '削除' : 'Remove'}
+                                        </button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="space-y-3">
+                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-stone-400">{item.subtitle || (locale === 'jp' ? 'FROM THE SPOT' : 'FROM THE SPOT')}</p>
+                                        <h3 className="text-3xl font-serif font-light tracking-tight text-black">{item.title}</h3>
+                                      </div>
+                                      <p className="text-base leading-relaxed text-stone-600 whitespace-pre-line">{item.description}</p>
+                                    </>
+                                  )}
+                                </div>
+                                <div className="space-y-4">
+                                  {item.media_url ? (
+                                    mediaType === 'video' ? (
+                                      <div className="aspect-[4/5] rounded-[28px] overflow-hidden bg-black">
+                                        <VideoEmbed url={item.media_url} title={item.title || `from-spot-${index + 1}`} />
+                                      </div>
+                                    ) : (
+                                      <div className="aspect-[4/5] rounded-[28px] overflow-hidden bg-stone-100">
+                                        <img src={item.media_url} alt={item.title || `from-spot-${index + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className="aspect-[4/5] rounded-[28px] border border-dashed border-stone-200 bg-stone-50 flex flex-col items-center justify-center gap-3 text-center px-6">
+                                      <MessageSquare className="w-8 h-8 text-stone-300" />
+                                      <p className="text-[10px] font-black uppercase tracking-[0.25em] text-stone-400">{locale === 'jp' ? '現場の素材を追加' : 'Add media from the spot'}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+
                     {/* Menu Section */}
                     <section className="space-y-12">
                       <div className="flex items-center gap-4">
@@ -5782,21 +6042,33 @@ export default function App() {
                               className="w-full py-5 bg-white border border-black text-black text-[10px] font-black uppercase tracking-[0.3em] hover:bg-stone-50 transition-colors flex items-center justify-center gap-2 rounded-xl"
                             >
                               <Navigation className="w-4 h-4" />
-                              Directions
+                              {detailViewOnMapLabel}
                             </button>
                           </div>
                         )}
                       </div>
 
                       {/* Map Preview */}
-                      <div className="aspect-square border border-stone-200 relative overflow-hidden">
-                        <div className="absolute inset-0 bg-stone-100 flex items-center justify-center">
-                           <MapPin className="w-12 h-12 text-black" />
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-4 px-1">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">Mini Map</p>
+                            <p className="text-xs text-stone-500 mt-1">{detailMiniMapLabel}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handlePlaceViewOnMap({ lat: selectedPlaceForDetail.lat, lng: selectedPlaceForDetail.lng })}
+                            className="text-[10px] font-black uppercase tracking-[0.25em] text-black hover:text-stone-500 transition-colors"
+                          >
+                            {detailViewOnMapLabel}
+                          </button>
                         </div>
-                        <div className="absolute bottom-4 left-4 right-4 p-4 bg-white/90 backdrop-blur-sm border border-stone-200 rounded-xl">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-black">Coordinates</p>
-                          <p className="text-[10px] font-mono text-stone-500">{selectedPlaceForDetail.lat.toFixed(4)}, {selectedPlaceForDetail.lng.toFixed(4)}</p>
-                        </div>
+                        <DetailMiniMap
+                          lat={selectedPlaceForDetail.lat}
+                          lng={selectedPlaceForDetail.lng}
+                          name={selectedPlaceForDetail.name}
+                          onOpenMap={() => handlePlaceViewOnMap({ lat: selectedPlaceForDetail.lat, lng: selectedPlaceForDetail.lng })}
+                        />
                       </div>
 
                     </div>
