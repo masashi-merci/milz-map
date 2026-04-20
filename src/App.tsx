@@ -71,6 +71,7 @@ import {
   Save,
   Upload,
   Layers3,
+  Landmark,
 } from 'lucide-react';
 
 // DropZone component for drag & drop uploads
@@ -287,7 +288,11 @@ interface Place {
   review_count?: number;
   hours?: string;
   reviews?: Review[];
+  badges?: string[];
+  area_key?: string;
+  area_label?: string;
 }
+
 
 interface Favorite {
   id: string;
@@ -300,11 +305,13 @@ interface AIResults {
   recommendations?: {
     name: string;
     reason: string;
+    details?: string;
     category: string;
     lat: number;
     lng: number;
   }[];
 }
+
 
 interface TempAiPin {
   lat: number;
@@ -314,8 +321,10 @@ interface TempAiPin {
 interface AiFavoriteTranslation {
   name: string;
   reason: string;
+  details?: string;
   category: string;
 }
+
 
 interface AiFavoriteItem {
   key: string;
@@ -326,7 +335,9 @@ interface AiFavoriteItem {
   lng: number;
   created_at: string;
   translations?: Partial<Record<Locale, AiFavoriteTranslation>>;
+  details?: string;
 }
+
 
 interface ShortFeedItem {
   id: string;
@@ -348,6 +359,147 @@ type Locale = "jp" | "en";
 
 const AI_FAVORITES_STORAGE_PREFIX = "milz_ai_favorites_";
 const AUTH_METADATA_AI_FAVORITES_KEY = "milz_ai_favorites";
+
+type FilterOptionKind = 'category' | 'badge';
+
+interface FilterOptionRecord {
+  id: string;
+  kind: FilterOptionKind;
+  name: string;
+  sort_order?: number;
+  is_active?: boolean;
+  created_at?: string;
+}
+
+interface AreaCityOption {
+  name: string;
+  center: [number, number];
+  zoom?: number;
+}
+
+interface AreaOption {
+  key: string;
+  label: string;
+  countryCode: string;
+  countryName: string;
+  stateCode: string;
+  stateName: string;
+  center: [number, number];
+  zoom?: number;
+  cities: AreaCityOption[];
+  aliases: string[];
+}
+
+interface AiRecommendationMetric {
+  id?: string;
+  area_key: string;
+  city_name?: string | null;
+  recommendation_name: string;
+  category: string;
+  lat: number;
+  lng: number;
+  view_count?: number;
+  favorite_count?: number;
+  details?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+const DEFAULT_CATEGORY_OPTIONS = ['カフェ', 'レストラン', 'ショッピング', 'エンターテイメント', '公園・自然', '神社・寺院', 'その他'];
+const DEFAULT_BADGE_OPTIONS = ['Yukie Fav', 'Pet Friendly'];
+
+const AREA_OPTIONS: AreaOption[] = [
+  {
+    key: 'new-york',
+    label: 'New York',
+    countryCode: 'US',
+    countryName: 'United States',
+    stateCode: 'NY',
+    stateName: 'New York',
+    center: [40.7128, -74.006],
+    zoom: 12,
+    aliases: ['new york', 'nyc', 'manhattan', 'brooklyn', 'queens', 'bronx', 'staten island'],
+    cities: [
+      { name: 'Manhattan', center: [40.7831, -73.9712], zoom: 13 },
+      { name: 'Brooklyn', center: [40.6782, -73.9442], zoom: 12 },
+      { name: 'Queens', center: [40.7282, -73.7949], zoom: 12 },
+      { name: 'Bronx', center: [40.8448, -73.8648], zoom: 12 },
+      { name: 'Staten Island', center: [40.5795, -74.1502], zoom: 12 },
+    ],
+  },
+  {
+    key: 'tokyo',
+    label: 'Tokyo',
+    countryCode: 'JP',
+    countryName: 'Japan',
+    stateCode: '13',
+    stateName: 'Tokyo',
+    center: [35.6762, 139.6503],
+    zoom: 12,
+    aliases: ['tokyo', '渋谷', '新宿', '港区', '世田谷', '目黒'],
+    cities: [
+      { name: 'Shibuya', center: [35.6595, 139.7005], zoom: 14 },
+      { name: 'Shinjuku', center: [35.6938, 139.7034], zoom: 14 },
+      { name: 'Minato', center: [35.6581, 139.7516], zoom: 14 },
+      { name: 'Meguro', center: [35.6415, 139.6982], zoom: 14 },
+      { name: 'Setagaya', center: [35.6466, 139.653], zoom: 13 },
+    ],
+  },
+  {
+    key: 'kyoto',
+    label: 'Kyoto',
+    countryCode: 'JP',
+    countryName: 'Japan',
+    stateCode: '26',
+    stateName: 'Kyoto',
+    center: [35.0116, 135.7681],
+    zoom: 12,
+    aliases: ['kyoto', '京都', '祇園', '東山', '伏見'],
+    cities: [
+      { name: 'Nakagyo', center: [35.0102, 135.751], zoom: 14 },
+      { name: 'Shimogyo', center: [34.9875, 135.7594], zoom: 14 },
+      { name: 'Higashiyama', center: [34.9965, 135.7788], zoom: 14 },
+      { name: 'Sakyo', center: [35.0422, 135.7785], zoom: 13 },
+      { name: 'Fushimi', center: [34.936, 135.7617], zoom: 13 },
+    ],
+  },
+  {
+    key: 'seoul',
+    label: 'Seoul',
+    countryCode: 'KR',
+    countryName: 'South Korea',
+    stateCode: '11',
+    stateName: 'Seoul',
+    center: [37.5665, 126.978],
+    zoom: 12,
+    aliases: ['seoul', '서울', 'gangnam', 'mapo', 'yongsan'],
+    cities: [
+      { name: 'Gangnam-gu', center: [37.5172, 127.0473], zoom: 14 },
+      { name: 'Jongno-gu', center: [37.5735, 126.979], zoom: 14 },
+      { name: 'Mapo-gu', center: [37.5663, 126.9019], zoom: 14 },
+      { name: 'Yongsan-gu', center: [37.5326, 126.9905], zoom: 14 },
+      { name: 'Seongsu', center: [37.5447, 127.0557], zoom: 14 },
+    ],
+  },
+  {
+    key: 'hawaii',
+    label: 'Hawaii',
+    countryCode: 'US',
+    countryName: 'United States',
+    stateCode: 'HI',
+    stateName: 'Hawaii',
+    center: [21.3069, -157.8583],
+    zoom: 11,
+    aliases: ['hawaii', 'honolulu', 'waikiki', 'maui', 'oahu'],
+    cities: [
+      { name: 'Honolulu', center: [21.3069, -157.8583], zoom: 13 },
+      { name: 'Waikiki', center: [21.2767, -157.8275], zoom: 14 },
+      { name: 'Kailua', center: [21.4022, -157.7394], zoom: 13 },
+      { name: 'North Shore', center: [21.664, -158.051], zoom: 12 },
+      { name: 'Hilo', center: [19.7076, -155.0885], zoom: 13 },
+    ],
+  },
+];
 
 const normalizeMapCoords = (latInput: number | string, lngInput: number | string) => {
   let lat = Number(latInput);
@@ -399,6 +551,7 @@ const getAiFavoriteDisplay = (item: AiFavoriteItem, locale: Locale): AiFavoriteT
   return {
     name: item.name,
     reason: item.reason,
+    details: item.details || item.reason,
     category: item.category,
   };
 };
@@ -418,6 +571,7 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       name: item.name,
       reason: item?.reason || '',
       category: item?.category || 'AI Recommendation',
+      details: item?.details || item?.reason || '',
     };
 
     if (!entry) {
@@ -433,6 +587,7 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
           ...(item?.translations || {}),
           [itemLocale]: translation,
         },
+        details: translation.details || item?.details || item?.reason || '',
       });
       return;
     }
@@ -454,6 +609,7 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
       name: entry.name || translation.name,
       reason: entry.reason || translation.reason,
       category: entry.category || translation.category,
+      details: entry.details || translation.details || entry.reason,
     });
   });
 
@@ -461,6 +617,44 @@ const mergeAiFavoriteItems = (items: any[]): AiFavoriteItem[] => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 };
+
+const findAreaOption = (areaKey?: string | null) => AREA_OPTIONS.find((item) => item.key === areaKey) || AREA_OPTIONS[0];
+
+const createLocationFilterFromArea = (areaKey: string, cityName?: string) => {
+  const area = findAreaOption(areaKey);
+  const city = area.cities.find((item) => item.name === cityName) || area.cities[0] || null;
+  return {
+    areaKey: area.key,
+    areaName: area.label,
+    countryCode: area.countryCode,
+    countryName: area.countryName,
+    stateCode: area.stateCode,
+    stateName: area.stateName,
+    cityCode: city?.name || '',
+    cityName: city?.name || '',
+  };
+};
+
+const inferAreaKeyFromText = (value?: string | null) => {
+  const haystack = (value || '').toLowerCase();
+  if (!haystack) return '';
+  const matched = AREA_OPTIONS.find((area) => area.aliases.some((alias) => haystack.includes(alias.toLowerCase())));
+  return matched?.key || '';
+};
+
+const resolvePlaceAreaKey = (place: Partial<Place>) => {
+  return place.area_key || inferAreaKeyFromText([place.area_label, place.prefecture, place.country, place.address, place.municipality].filter(Boolean).join(' ')) || 'tokyo';
+};
+
+const resolvePlaceCityName = (place: Partial<Place>, areaKey?: string) => {
+  const area = findAreaOption(areaKey || resolvePlaceAreaKey(place));
+  const direct = place.municipality || '';
+  if (direct && area.cities.some((city) => city.name.toLowerCase() === direct.toLowerCase())) return direct;
+  const address = `${place.address || ''} ${place.municipality || ''}`.toLowerCase();
+  return area.cities.find((city) => address.includes(city.name.toLowerCase()))?.name || direct || '';
+};
+
+const getAreaCityOptions = (areaKey?: string | null) => findAreaOption(areaKey).cities;
 
 const uiCopy: Record<Locale, Record<string, string>> = {
   jp: {
@@ -586,16 +780,17 @@ function MapEvents({
 const CATEGORY_CONFIG: Record<string, { icon: any, color: string, bg: string }> = {
   'レストラン': { icon: Utensils, color: '#000000', bg: '#FFFFFF' },
   'カフェ': { icon: Coffee, color: '#000000', bg: '#FFFFFF' },
-  '駅・交通': { icon: Train, color: '#000000', bg: '#FFFFFF' },
-  '駐車場': { icon: ParkingCircle, color: '#000000', bg: '#FFFFFF' },
-  '公園・自然': { icon: Trees, color: '#000000', bg: '#FFFFFF' },
   'ショッピング': { icon: ShoppingBag, color: '#000000', bg: '#FFFFFF' },
-  '学校': { icon: School, color: '#000000', bg: '#FFFFFF' },
-  'コンビニ': { icon: Store, color: '#000000', bg: '#FFFFFF' },
+  'エンターテイメント': { icon: Ticket, color: '#000000', bg: '#FFFFFF' },
+  '公園・自然': { icon: Trees, color: '#000000', bg: '#FFFFFF' },
+  '神社・寺院': { icon: Landmark, color: '#000000', bg: '#FFFFFF' },
   'その他': { icon: MoreHorizontal, color: '#000000', bg: '#FFFFFF' },
   'restaurant': { icon: Utensils, color: '#000000', bg: '#FFFFFF' },
   'cafe': { icon: Coffee, color: '#000000', bg: '#FFFFFF' },
-  'shop': { icon: ShoppingBag, color: '#000000', bg: '#FFFFFF' },
+  'shopping': { icon: ShoppingBag, color: '#000000', bg: '#FFFFFF' },
+  'entertainment': { icon: Ticket, color: '#000000', bg: '#FFFFFF' },
+  'park': { icon: Trees, color: '#000000', bg: '#FFFFFF' },
+  'temple': { icon: Landmark, color: '#000000', bg: '#FFFFFF' },
   'other': { icon: MoreHorizontal, color: '#000000', bg: '#FFFFFF' },
 };
 
@@ -603,13 +798,10 @@ const CATEGORY_ICONS_SVG: Record<string, string> = {
   'カフェ・レストラン': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>',
   'レストラン': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"></path><path d="M7 2v20"></path><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"></path></svg>',
   'カフェ': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"></path><path d="M3 8h14v7a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path><line x1="6" y1="2" x2="6" y2="5"></line><line x1="10" y1="2" x2="10" y2="5"></line><line x1="14" y1="2" x2="14" y2="5"></line></svg>',
-  '駅・交通': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="12" rx="2"></rect><path d="M8 11h8"></path><path d="M12 15v4"></path><path d="M8 19l-2 2"></path><path d="M16 19l2 2"></path></svg>',
-  '駐車場': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h-3v16"></path><path d="M10 4h5a4 4 0 0 1 0 8h-5"></path></svg>',
-  '観光スポット': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>',
   '公園・自然': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"></path><path d="M18 12v.2A3 3 0 0 1 16.9 18H13a3 3 0 0 1-1-5.8V12a3 3 0 0 1 6 0Z"></path><path d="M12 22v-3"></path><path d="M8 22v-2"></path><path d="M16 22v-2"></path></svg>',
   'ショッピング': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>',
-  '学校': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6 8-4 8 4"></path><path d="m18 10 2 1v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8l2-1"></path><path d="M14 22v-4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v4"></path></svg>',
-  'コンビニ': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"></path><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"></path><path d="M2 7h20"></path><path d="M22 7v3a2 2 0 0 1-2 2v0a2 2 0 0 1-2-2V7"></path><path d="M2 7v3a2 2 0 0 0 2 2v0a2 2 0 0 0 2-2V7"></path></svg>',
+  'エンターテイメント': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3Z"></path><path d="M7 6v12"></path><path d="M17 6v12"></path><path d="M2 12h5"></path><path d="M17 12h5"></path></svg>',
+  '神社・寺院': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22h18"></path><path d="M5 22V10l7-4 7 4v12"></path><path d="M9 10V6h6v4"></path><path d="M12 22v-6"></path><path d="M2 10h20"></path></svg>',
   'その他': '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>',
 };
 
@@ -680,6 +872,17 @@ export default function App() {
   const [editingPlace, setEditingPlace] = useState<Place | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | 'all'>('all');
+  const [selectedBadge, setSelectedBadge] = useState<string | 'all'>('all');
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORY_OPTIONS);
+  const [badgeOptions, setBadgeOptions] = useState<string[]>(DEFAULT_BADGE_OPTIONS);
+  const [filterOptionName, setFilterOptionName] = useState('');
+  const [filterOptionKind, setFilterOptionKind] = useState<FilterOptionKind>('badge');
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
+  const [placeEditorAreaKey, setPlaceEditorAreaKey] = useState<string>('tokyo');
+  const [placeEditorCityName, setPlaceEditorCityName] = useState<string>('Shibuya');
+  const [placeEditorBadges, setPlaceEditorBadges] = useState<string[]>([]);
+  const [selectedAiRecommendation, setSelectedAiRecommendation] = useState<AIResults['recommendations'] extends (infer T)[] ? T | null : any>(null);
+  const [aiLeaderboard, setAiLeaderboard] = useState<AiRecommendationMetric[]>([]);
   const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
   const [selectedPlaceForDetail, setSelectedPlaceForDetail] = useState<Place | null>(null);
   const [isEditingDetail, setIsEditingDetail] = useState(false);
@@ -741,32 +944,9 @@ export default function App() {
     });
   }, [activeIllustrationTheme, mapStyle]);
   
-  const [locationFilter, setLocationFilter] = useState({
-    countryCode: 'JP',
-    countryName: 'Japan',
-    stateCode: '',
-    stateName: '',
-    cityCode: '',
-    cityName: ''
-  });
-
-  // Get lists for dropdowns
-  const countries = useMemo(() => 
-    Country.getAllCountries().sort((a, b) => a.name.localeCompare(b.name)), 
-    []
-  );
-  const states = useMemo(() => 
-    locationFilter.countryCode 
-      ? State.getStatesOfCountry(locationFilter.countryCode).sort((a, b) => a.name.localeCompare(b.name)) 
-      : [], 
-    [locationFilter.countryCode]
-  );
-  const cities = useMemo(() => 
-    (locationFilter.countryCode && locationFilter.stateCode) 
-      ? City.getCitiesOfState(locationFilter.countryCode, locationFilter.stateCode).sort((a, b) => a.name.localeCompare(b.name)) 
-      : [], 
-    [locationFilter.countryCode, locationFilter.stateCode]
-  );
+  const [locationFilter, setLocationFilter] = useState(() => createLocationFilterFromArea('tokyo', 'Shibuya'));
+  const areaOptions = AREA_OPTIONS;
+  const areaCityOptions = useMemo(() => getAreaCityOptions(locationFilter.areaKey), [locationFilter.areaKey]);
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
@@ -794,6 +974,22 @@ export default function App() {
     if (profileDisplayName.trim()) return;
     setProfileDisplayName(user.email.split('@')[0] || 'User');
   }, [user?.email, profileDisplayName]);
+
+  useEffect(() => {
+    if (!isAdding) return;
+
+    if (editingPlace) {
+      const nextAreaKey = resolvePlaceAreaKey(editingPlace);
+      setPlaceEditorAreaKey(nextAreaKey);
+      setPlaceEditorCityName(resolvePlaceCityName(editingPlace, nextAreaKey) || getAreaCityOptions(nextAreaKey)[0]?.name || '');
+      setPlaceEditorBadges(editingPlace.badges || []);
+      return;
+    }
+
+    setPlaceEditorAreaKey(locationFilter.areaKey || 'tokyo');
+    setPlaceEditorCityName(locationFilter.cityName || getAreaCityOptions(locationFilter.areaKey || 'tokyo')[0]?.name || '');
+    setPlaceEditorBadges([]);
+  }, [isAdding, editingPlace, locationFilter.areaKey, locationFilter.cityName]);
 
   // Add to debug logs
   const addLog = React.useCallback((msg: string) => {
@@ -1126,6 +1322,108 @@ export default function App() {
     }
   };
 
+  const normalizePlaces = React.useCallback((items: Place[] = []) => {
+    return (items || []).map((p) => ({
+      ...p,
+      detailed_description: p.detailed_description || '',
+      milz_experience: p.milz_experience || '',
+      images: p.images || [],
+      videos: p.videos || [],
+      pdfs: p.pdfs || [],
+      rating: p.rating || 4.5,
+      review_count: p.review_count || 0,
+      hours: p.hours || '',
+      reviews: p.reviews || [],
+      badges: p.badges || [],
+      area_key: p.area_key || resolvePlaceAreaKey(p),
+      area_label: p.area_label || findAreaOption(p.area_key || resolvePlaceAreaKey(p)).label,
+      municipality: p.municipality || resolvePlaceCityName(p, p.area_key || resolvePlaceAreaKey(p)),
+    }));
+  }, []);
+
+  const fetchFilterOptions = React.useCallback(async () => {
+    const client = getSupabase();
+    if (!client) {
+      setCategoryOptions(DEFAULT_CATEGORY_OPTIONS);
+      setBadgeOptions(DEFAULT_BADGE_OPTIONS);
+      return;
+    }
+
+    setFilterOptionsLoading(true);
+    try {
+      const { data, error } = await client
+        .from('admin_filter_options')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const records = (data || []) as FilterOptionRecord[];
+      const categories = records.filter((item) => item.kind === 'category').map((item) => item.name).filter(Boolean);
+      const badges = records.filter((item) => item.kind === 'badge').map((item) => item.name).filter(Boolean);
+      setCategoryOptions(categories.length ? categories : DEFAULT_CATEGORY_OPTIONS);
+      setBadgeOptions(badges.length ? badges : DEFAULT_BADGE_OPTIONS);
+    } catch (error) {
+      console.error('Failed to fetch filter options:', error);
+      setCategoryOptions(DEFAULT_CATEGORY_OPTIONS);
+      setBadgeOptions(DEFAULT_BADGE_OPTIONS);
+    } finally {
+      setFilterOptionsLoading(false);
+    }
+  }, []);
+
+
+  const handleCreateFilterOption = async () => {
+    const name = filterOptionName.trim();
+    if (!name) {
+      showToast(locale === 'jp' ? '項目名を入力してください。' : 'Enter an option name.', 'error');
+      return;
+    }
+
+    const client = getSupabase();
+    if (!client) {
+      showToast(locale === 'jp' ? 'DBに接続できません。' : 'Database connection is unavailable.', 'error');
+      return;
+    }
+
+    try {
+      const existingOptions = filterOptionKind === 'category' ? categoryOptions : badgeOptions;
+      const { error } = await client.from('admin_filter_options').insert({
+        kind: filterOptionKind,
+        name,
+        sort_order: existingOptions.length + 1,
+        is_active: true,
+      });
+      if (error) throw error;
+      setFilterOptionName('');
+      fetchFilterOptions();
+      showToast(locale === 'jp' ? 'フィルター項目を追加しました。' : 'Filter option added.', 'success');
+    } catch (error: any) {
+      console.error('Failed to create filter option:', error);
+      showToast(error?.message || (locale === 'jp' ? 'フィルター項目の追加に失敗しました。' : 'Failed to add the filter option.'), 'error');
+    }
+  };
+
+  const handleDeleteFilterOption = async (kind: FilterOptionKind, name: string) => {
+    const client = getSupabase();
+    if (!client) {
+      showToast(locale === 'jp' ? 'DBに接続できません。' : 'Database connection is unavailable.', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await client.from('admin_filter_options').delete().eq('kind', kind).eq('name', name);
+      if (error) throw error;
+      fetchFilterOptions();
+      showToast(locale === 'jp' ? 'フィルター項目を削除しました。' : 'Filter option removed.', 'success');
+    } catch (error: any) {
+      console.error('Failed to delete filter option:', error);
+      showToast(error?.message || (locale === 'jp' ? '削除に失敗しました。' : 'Failed to remove the filter option.'), 'error');
+    }
+  };
+
   const isFetchingRef = useRef(false);
 
   // Fetch places
@@ -1159,7 +1457,7 @@ export default function App() {
         if (res.ok) {
           const data = await res.json();
           addLog(`fetchPlaces: Raw API Success (${data.length} items)`);
-          setPlaces(data as Place[]);
+          setPlaces(normalizePlaces(data as Place[]));
           return true;
         }
         addLog(`fetchPlaces: Raw API Failed (${res.status})`);
@@ -1203,18 +1501,7 @@ export default function App() {
           addLog(`fetchPlaces: Library Error ${error.code}: ${error.message}`);
           await tryRawFetch();
         } else if (data) {
-          const processedData = (data as Place[]).map(p => ({
-            ...p,
-            detailed_description: p.detailed_description || '',
-            milz_experience: p.milz_experience || '',
-            images: p.images || [],
-            videos: p.videos || [],
-            pdfs: p.pdfs || [],
-            rating: p.rating || 4.5,
-            review_count: p.review_count || 0,
-            hours: p.hours || "",
-            reviews: p.reviews || []
-          }));
+          const processedData = normalizePlaces(data as Place[]);
           addLog(`fetchPlaces: Library Success (${data.length} items)`);
           setPlaces(processedData);
         }
@@ -1241,6 +1528,8 @@ export default function App() {
 
   useEffect(() => {
     if (isConfigMissing) return;
+
+    fetchFilterOptions();
 
     if (!isFetchingRef.current) {
       fetchPlaces();
@@ -1724,6 +2013,8 @@ export default function App() {
     const description = formData.get('description') as string || (document.querySelector('textarea[name="description"]') as HTMLTextAreaElement)?.value;
     const category = (formData.get('category') as any) || (document.querySelector('select[name="category"]') as HTMLSelectElement)?.value || 'その他';
     const website_url = formData.get('website_url') as string || (document.querySelector('input[name="website_url"]') as HTMLInputElement)?.value;
+    const activeArea = findAreaOption(placeEditorAreaKey);
+    const selectedEditorCity = placeEditorCityName || activeArea.cities[0]?.name || '';
 
     if (!name) {
       showToast("スポット名を入力してください。", "error");
@@ -1821,6 +2112,12 @@ export default function App() {
         detailed_description,
         milz_experience,
         category,
+        badges: placeEditorBadges,
+        area_key: activeArea.key,
+        area_label: activeArea.label,
+        country: activeArea.countryName,
+        prefecture: activeArea.stateName,
+        municipality: selectedEditorCity || null,
         lat: newPlacePos.lat,
         lng: newPlacePos.lng,
         website_url: website_url || null,
@@ -1921,6 +2218,106 @@ export default function App() {
     }
   };
 
+
+  const fetchAiLeaderboard = React.useCallback(async (areaKey?: string, cityName?: string, fallbackItems?: AIResults['recommendations']) => {
+    const client = getSupabase();
+    if (!client) {
+      const localItems = (fallbackItems || aiResults?.recommendations || []).slice(0, 5).map((item, index) => ({
+        id: `${item.name}-${index}`,
+        area_key: areaKey || locationFilter.areaKey,
+        city_name: cityName || locationFilter.cityName,
+        recommendation_name: item.name,
+        category: item.category,
+        lat: item.lat,
+        lng: item.lng,
+        view_count: Math.max(5 - index, 1),
+        favorite_count: 0,
+        details: item.details || item.reason,
+      }));
+      setAiLeaderboard(localItems);
+      return;
+    }
+
+    try {
+      let query = client
+        .from('ai_recommendation_metrics')
+        .select('*')
+        .eq('area_key', areaKey || locationFilter.areaKey)
+        .order('favorite_count', { ascending: false })
+        .order('view_count', { ascending: false })
+        .limit(5);
+
+      if (cityName) {
+        query = query.eq('city_name', cityName);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const rows = (data || []) as AiRecommendationMetric[];
+      if (rows.length) {
+        setAiLeaderboard(rows);
+        return;
+      }
+    } catch (error) {
+      console.error('Failed to fetch AI leaderboard:', error);
+    }
+
+    const localItems = (fallbackItems || aiResults?.recommendations || []).slice(0, 5).map((item, index) => ({
+      id: `${item.name}-${index}`,
+      area_key: areaKey || locationFilter.areaKey,
+      city_name: cityName || locationFilter.cityName,
+      recommendation_name: item.name,
+      category: item.category,
+      lat: item.lat,
+      lng: item.lng,
+      view_count: Math.max(5 - index, 1),
+      favorite_count: 0,
+      details: item.details || item.reason,
+    }));
+    setAiLeaderboard(localItems);
+  }, [aiResults?.recommendations, locationFilter.areaKey, locationFilter.cityName]);
+
+  const recordAiMetric = React.useCallback(async (rec: { name: string; category: string; lat: number; lng: number; details?: string }, action: 'view' | 'favorite') => {
+    const client = getSupabase();
+    if (!client) return;
+
+    try {
+      const { data, error } = await client
+        .from('ai_recommendation_metrics')
+        .select('*')
+        .eq('area_key', locationFilter.areaKey)
+        .eq('city_name', locationFilter.cityName || null)
+        .eq('recommendation_name', rec.name)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      const current = data as AiRecommendationMetric | null;
+      const payload: AiRecommendationMetric = {
+        area_key: locationFilter.areaKey,
+        city_name: locationFilter.cityName || null,
+        recommendation_name: rec.name,
+        category: rec.category,
+        lat: rec.lat,
+        lng: rec.lng,
+        details: rec.details || '',
+        view_count: (current?.view_count || 0) + (action === 'view' ? 1 : 0),
+        favorite_count: (current?.favorite_count || 0) + (action === 'favorite' ? 1 : 0),
+      };
+
+      if (current?.id) {
+        await client.from('ai_recommendation_metrics').update(payload).eq('id', current.id);
+      } else {
+        await client.from('ai_recommendation_metrics').insert(payload);
+      }
+
+      fetchAiLeaderboard(locationFilter.areaKey, locationFilter.cityName);
+    } catch (error) {
+      console.error('Failed to record AI metric:', error);
+    }
+  }, [fetchAiLeaderboard, locationFilter.areaKey, locationFilter.cityName]);
+
   const persistAiFavorites = React.useCallback(async (next: AiFavoriteItem[]) => {
     if (!user?.id) return false;
 
@@ -1950,7 +2347,7 @@ export default function App() {
     return true;
   }, [user]);
 
-  const handleSaveAiRecommendation = async (rec: { name: string; reason: string; category: string; lat: number; lng: number }) => {
+  const handleSaveAiRecommendation = async (rec: { name: string; reason: string; details?: string; category: string; lat: number; lng: number }) => {
     if (!user) {
       showToast(locale === 'jp' ? 'ログインが必要です。' : 'Please sign in first.', 'error');
       return;
@@ -1973,6 +2370,7 @@ export default function App() {
             name: normalizedRec.name,
             reason: normalizedRec.reason,
             category: normalizedRec.category,
+            details: normalizedRec.details || normalizedRec.reason,
             lat: normalizedRec.lat,
             lng: normalizedRec.lng,
             created_at: new Date().toISOString(),
@@ -1980,6 +2378,7 @@ export default function App() {
               [locale]: {
                 name: normalizedRec.name,
                 reason: normalizedRec.reason,
+                details: normalizedRec.details || normalizedRec.reason,
                 category: normalizedRec.category,
               },
             },
@@ -2000,6 +2399,10 @@ export default function App() {
       return;
     }
 
+    if (!exists) {
+      recordAiMetric(normalizedRec, 'favorite');
+    }
+
     showToast(
       exists
         ? (locale === 'jp' ? 'AIおすすめを保存一覧から外しました。' : 'Removed from AI favorites.')
@@ -2014,7 +2417,7 @@ export default function App() {
     setActiveTab('map');
   };
 
-  const handleAiViewOnMap = (rec: { name: string; lat: number; lng: number }) => {
+  const handleAiViewOnMap = (rec: { name: string; lat: number; lng: number; category?: string; details?: string }) => {
     const normalized = normalizeMapCoords(rec.lat, rec.lng);
     if (!normalized) {
       showToast(locale === 'jp' ? '地図へ移動できる座標が見つかりませんでした。' : 'No valid coordinates were found for this recommendation.', 'error');
@@ -2022,6 +2425,7 @@ export default function App() {
     }
 
     const target = { lat: normalized.lat, lng: normalized.lng };
+    recordAiMetric({ name: rec.name, category: rec.category || 'AI Recommendation', lat: normalized.lat, lng: normalized.lng, details: rec.details }, 'view');
     const aiKey = createAiFavoriteKey(target);
     const isSaved = aiFavorites.some((item) => item.key === aiKey);
     setTempAiPin(isSaved ? null : { ...target, name: rec.name });
@@ -2039,57 +2443,13 @@ export default function App() {
     focusMapOnCoords({ lat: normalized.lat, lng: normalized.lng });
   };
   const handleSearchLocation = async () => {
-    // If we have a specific city selected, we can use its lat/lng directly from the library!
-    const selectedCity = cities.find(c => c.name === locationFilter.cityName);
-    
-    if (selectedCity) {
-      const lat = parseFloat(selectedCity.latitude || '');
-      const lng = parseFloat(selectedCity.longitude || '');
-      if (!isNaN(lat) && !isNaN(lng)) {
-        mapRef.current?.flyTo([lat, lng], 14);
-        setIsFiltering(false);
-        return;
-      }
-    }
+    const area = findAreaOption(locationFilter.areaKey);
+    const selectedCity = area.cities.find((city) => city.name === locationFilter.cityName);
+    const targetCenter = selectedCity?.center || area.center;
+    const targetZoom = selectedCity?.zoom || area.zoom || 12;
 
-    const { countryName, stateName, cityName } = locationFilter;
-    const fullAddress = `${countryName} ${stateName} ${cityName}`.trim();
-    if (!fullAddress) return;
-
-    setAiLoading(true);
-    try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!apiKey) {
-        showToast("Gemini APIキーが設定されていません。", "error");
-        return;
-      }
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Find the latitude and longitude for: "${fullAddress}". Return ONLY a JSON object with "lat" and "lng" keys.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              lat: { type: Type.NUMBER },
-              lng: { type: Type.NUMBER }
-            },
-            required: ["lat", "lng"]
-          }
-        }
-      });
-
-      const coords = JSON.parse(response.text);
-      if (coords.lat && coords.lng) {
-        mapRef.current?.flyTo([coords.lat, coords.lng], 14);
-        setIsFiltering(false);
-      }
-    } catch (error) {
-      console.error('Geocoding error:', error);
-    } finally {
-      setAiLoading(false);
-    }
+    mapRef.current?.flyTo(targetCenter, targetZoom);
+    setIsFiltering(false);
   };
 
   const handleAiRecommend = async () => {
@@ -2097,11 +2457,11 @@ export default function App() {
     
     try {
       const client = getSupabase();
-      const { countryName, stateName, cityName } = locationFilter;
-      const locationStr = `${countryName} ${stateName} ${cityName}`.trim() || "Worldwide";
+      const { areaKey, areaName, countryName, stateName, cityName } = locationFilter as any;
+      const locationStr = [areaName || stateName || countryName, cityName].filter(Boolean).join(' / ') || 'Tokyo / Shibuya';
       const type = 'recommend';
       const category = 'all';
-      const locationCacheKey = `${locationStr}::${locale}`;
+      const locationCacheKey = `${areaKey || 'tokyo'}::${cityName || 'all'}::${locale}`;
 
       // 1. キャッシュの確認
       if (client) {
@@ -2125,6 +2485,7 @@ export default function App() {
             console.log(`Using cached ${type} for ${locationStr} (${locale})`);
             setAiResults(cacheData.data);
             setAiResultsLocale(locale);
+            fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cacheData.data?.recommendations || []);
             setAiLoading(false);
             return;
           }
@@ -2143,7 +2504,7 @@ export default function App() {
         ? 'Write the reason and category fields in natural Japanese. Keep place names in their commonly used local names.'
         : 'Write the reason and category fields in natural English. Keep place names in their commonly used local names.';
 
-      let prompt = `Based on the location "${locationStr}", recommend 10 interesting spots (restaurants, shops, landmarks) in this area. ${outputLanguageInstruction} Return ONLY valid JSON that matches the requested schema.`;
+      let prompt = `You are the MILZ city editor. Based on the location "${locationStr}", recommend exactly 10 real spots in this area. Focus on curated, stylish, memorable places that feel relevant for MILZ. Use these category labels when appropriate: カフェ, レストラン, ショッピング, エンターテイメント, 公園・自然, 神社・寺院, その他. ${outputLanguageInstruction} Each recommendation must include a short summary in "reason" and a longer editorial explanation in "details". Return ONLY valid JSON that matches the requested schema.`;
 
       let responseSchema = {
         type: Type.OBJECT,
@@ -2155,11 +2516,12 @@ export default function App() {
               properties: {
                 name: { type: Type.STRING },
                 reason: { type: Type.STRING },
+                details: { type: Type.STRING },
                 category: { type: Type.STRING },
                 lat: { type: Type.NUMBER },
                 lng: { type: Type.NUMBER }
               },
-              required: ["name", "reason", "category", "lat", "lng"]
+              required: ["name", "reason", "details", "category", "lat", "lng"]
             }
           }
         },
@@ -2179,6 +2541,7 @@ export default function App() {
       const results = JSON.parse(response.text);
       setAiResults(results);
       setAiResultsLocale(locale);
+      fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, results.recommendations || []);
 
       // 3. 結果をキャッシュに保存（upsert）
       if (client) {
@@ -2203,24 +2566,27 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab !== 'ai') return;
+    fetchAiLeaderboard(locationFilter.areaKey, locationFilter.cityName, aiResults?.recommendations || []);
     if (!aiResults || !aiResultsLocale || aiResultsLocale === locale || aiLoading) return;
     handleAiRecommend();
-  }, [locale]);
+  }, [activeTab, locale, locationFilter.areaKey, locationFilter.cityName, aiResults, aiResultsLocale, aiLoading, fetchAiLeaderboard]);
 
   const filteredPlaces = useMemo(() => {
-    return places.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.description?.toLowerCase().includes(searchQuery.toLowerCase());
-      
+    return places.filter((p) => {
+      const haystack = [p.name, p.description, p.address, p.municipality, p.area_label].filter(Boolean).join(' ').toLowerCase();
+      const matchesSearch = haystack.includes(searchQuery.toLowerCase());
+      const placeAreaKey = resolvePlaceAreaKey(p);
+      const placeCity = resolvePlaceCityName(p, placeAreaKey);
+      const matchesArea = !locationFilter.areaKey || placeAreaKey === locationFilter.areaKey;
+      const matchesCity = !locationFilter.cityName || !placeCity || placeCity === locationFilter.cityName || (p.address || '').toLowerCase().includes(locationFilter.cityName.toLowerCase());
       const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
-      
-      const isInBounds = (activeTab === 'list' && listFilter === 'all' && isMapBoundsFilterEnabled && mapBounds) 
-        ? mapBounds.contains([p.lat, p.lng]) 
+      const matchesBadge = selectedBadge === 'all' || (p.badges || []).includes(selectedBadge);
+      const isInBounds = (activeTab === 'list' && listFilter === 'all' && isMapBoundsFilterEnabled && mapBounds)
+        ? mapBounds.contains([p.lat, p.lng])
         : true;
-      
-      return matchesSearch && matchesCategory && isInBounds;
+      return matchesSearch && matchesArea && matchesCity && matchesCategory && matchesBadge && isInBounds;
     });
-  }, [places, searchQuery, selectedCategory, activeTab, listFilter, isMapBoundsFilterEnabled, mapBounds]);
+  }, [places, searchQuery, selectedCategory, selectedBadge, activeTab, listFilter, isMapBoundsFilterEnabled, mapBounds, locationFilter.areaKey, locationFilter.cityName]);
 
   const favoritePlaces = useMemo(() => {
     return places.filter(p => favorites.some(f => f.place_id === p.id));
@@ -2233,13 +2599,14 @@ export default function App() {
       const haystack = [
         localized.name,
         localized.reason,
+        localized.details,
         localized.category,
         alternate.name,
         alternate.reason,
+        alternate.details,
         alternate.category,
       ].join(' ').toLowerCase();
       const matchesSearch = haystack.includes(searchQuery.toLowerCase());
-
       const matchesCategory = selectedCategory === 'all' || localized.category === selectedCategory || alternate.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
@@ -2483,7 +2850,7 @@ export default function App() {
                       : (
                         <div className="relative">
                           <SlidersHorizontal className="w-4 h-4" />
-                          {(locationFilter.countryCode !== 'JP' || locationFilter.stateCode !== '' || locationFilter.cityName !== '' || selectedCategory !== 'all') && (
+                          {(locationFilter.areaKey !== 'tokyo' || locationFilter.cityName !== 'Shibuya' || selectedCategory !== 'all' || selectedBadge !== 'all') && (
                             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-black rounded-full border-2 border-white" />
                           )}
                         </div>
@@ -2507,28 +2874,57 @@ export default function App() {
                         </div>
 
                         <div className="space-y-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-stone-400">Area</p>
+                          <div className="flex flex-wrap gap-2">
+                            {areaOptions.map((area) => (
+                              <button
+                                key={area.key}
+                                onClick={() => setLocationFilter(createLocationFilterFromArea(area.key, area.cities[0]?.name))}
+                                className={cn(
+                                  "px-4 py-3 text-[10px] font-bold uppercase tracking-[0.14em] whitespace-nowrap transition-all rounded-full border",
+                                  locationFilter.areaKey === area.key
+                                    ? "bg-black text-white border-black"
+                                    : "text-stone-400 border-stone-100 hover:border-stone-200"
+                                )}
+                              >
+                                {area.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-stone-400">City / Ward</p>
+                          <select
+                            value={locationFilter.cityName}
+                            onChange={(e) => setLocationFilter((prev) => ({ ...prev, cityCode: e.target.value, cityName: e.target.value }))}
+                            className="w-full px-4 py-4 bg-stone-50 border border-stone-200 text-sm focus:outline-none appearance-none font-medium"
+                          >
+                            {areaCityOptions.map((city) => (
+                              <option key={city.name} value={city.name}>{city.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-4">
                           <p className="text-[9px] font-black uppercase tracking-widest text-stone-400">Categories</p>
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => setSelectedCategory('all')}
                               className={cn(
                                 "px-6 py-3 text-[10px] font-bold uppercase tracking-[0.1em] whitespace-nowrap transition-all rounded-full border",
-                                selectedCategory === 'all' 
-                                  ? "bg-black text-white border-black" 
-                                  : "text-stone-400 border-stone-100 hover:border-stone-200"
+                                selectedCategory === 'all' ? "bg-black text-white border-black" : "text-stone-400 border-stone-100 hover:border-stone-200"
                               )}
                             >
                               All
                             </button>
-                            {Object.keys(CATEGORY_CONFIG).map(cat => (
+                            {categoryOptions.map((cat) => (
                               <button
                                 key={cat}
                                 onClick={() => setSelectedCategory(cat)}
                                 className={cn(
                                   "px-6 py-3 text-[10px] font-bold uppercase tracking-[0.1em] whitespace-nowrap transition-all rounded-full border",
-                                  selectedCategory === cat 
-                                    ? "bg-black text-white border-black" 
-                                    : "text-stone-400 border-stone-100 hover:border-stone-200"
+                                  selectedCategory === cat ? "bg-black text-white border-black" : "text-stone-400 border-stone-100 hover:border-stone-200"
                                 )}
                               >
                                 {cat}
@@ -2538,100 +2934,53 @@ export default function App() {
                         </div>
 
                         <div className="space-y-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-stone-400">Location</p>
-                          <div className="grid grid-cols-1 gap-4">
-                        {/* Country Select */}
-                        <select
-                          value={locationFilter.countryCode}
-                          onChange={(e) => {
-                            const country = countries.find(c => c.isoCode === e.target.value);
-                            setLocationFilter(prev => ({ 
-                              ...prev, 
-                              countryCode: e.target.value, 
-                              countryName: country?.name || '',
-                              stateCode: '',
-                              stateName: '',
-                              cityCode: '',
-                              cityName: ''
-                            }));
-                          }}
-                          className="w-full px-4 py-4 bg-stone-50 border border-stone-200 text-sm focus:outline-none appearance-none font-medium"
-                        >
-                          <option value="">Select Country</option>
-                          {countries.map(c => (
-                            <option key={c.isoCode} value={c.isoCode}>{c.name} {c.flag}</option>
-                          ))}
-                        </select>
-
-                        <div className="grid grid-cols-3 gap-4">
-                          {/* State Select */}
-                          <select
-                            value={locationFilter.stateCode}
-                            disabled={!locationFilter.countryCode}
-                            onChange={(e) => {
-                              const state = states.find(s => s.isoCode === e.target.value);
-                              setLocationFilter(prev => ({ 
-                                ...prev, 
-                                stateCode: e.target.value, 
-                                stateName: state?.name || '',
-                                cityCode: '',
-                                cityName: ''
-                              }));
-                            }}
-                            className="w-full px-4 py-4 bg-stone-50 border border-stone-200 text-sm focus:outline-none appearance-none disabled:opacity-50 font-medium"
-                          >
-                            <option value="">Select State/Prefecture</option>
-                            {states.map(s => (
-                              <option key={s.isoCode} value={s.isoCode}>{s.name}</option>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-stone-400">Badges</p>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => setSelectedBadge('all')}
+                              className={cn(
+                                "px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] whitespace-nowrap transition-all rounded-full border",
+                                selectedBadge === 'all' ? "bg-black text-white border-black" : "text-stone-400 border-stone-100 hover:border-stone-200"
+                              )}
+                            >
+                              All
+                            </button>
+                            {badgeOptions.map((badge) => (
+                              <button
+                                key={badge}
+                                onClick={() => setSelectedBadge(badge)}
+                                className={cn(
+                                  "px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] whitespace-nowrap transition-all rounded-full border",
+                                  selectedBadge === badge ? "bg-black text-white border-black" : "text-stone-400 border-stone-100 hover:border-stone-200"
+                                )}
+                              >
+                                {badge}
+                              </button>
                             ))}
-                          </select>
-
-                          {/* City Select */}
-                          <select
-                            value={locationFilter.cityName}
-                            disabled={!locationFilter.stateCode}
-                            onChange={(e) => {
-                              setLocationFilter(prev => ({ 
-                                ...prev, 
-                                cityCode: e.target.value, 
-                                cityName: e.target.value 
-                              }));
-                            }}
-                            className="w-full px-4 py-4 bg-stone-50 border border-stone-200 text-sm focus:outline-none appearance-none disabled:opacity-50 font-medium"
-                          >
-                            <option value="">Select City</option>
-                            {cities.map(c => (
-                              <option key={c.name} value={c.name}>{c.name}</option>
-                            ))}
-                          </select>
+                          </div>
                         </div>
 
-                        <button
-                          onClick={() => {
-                            setLocationFilter({ 
-                              countryCode: '', 
-                              countryName: '', 
-                              stateCode: '', 
-                              stateName: '', 
-                              cityCode: '', 
-                              cityName: '' 
-                            });
-                            setIsFiltering(false);
-                          }}
-                          className="w-full py-3 text-[10px] font-black text-stone-400 hover:text-stone-900 transition-colors"
-                        >
-                          CLEAR ALL FILTERS
-                        </button>
-                        <button
-                          onClick={handleSearchLocation}
-                          disabled={loading}
-                          className="w-full py-5 bg-black text-white font-black text-[10px] uppercase tracking-[0.3em] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                          GO TO LOCATION
-                        </button>
-                      </div>
-                    </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <button
+                            onClick={() => {
+                              setLocationFilter(createLocationFilterFromArea('tokyo', 'Shibuya'));
+                              setSelectedCategory('all');
+                              setSelectedBadge('all');
+                              setIsFiltering(false);
+                            }}
+                            className="w-full py-3 text-[10px] font-black text-stone-400 hover:text-stone-900 transition-colors"
+                          >
+                            CLEAR ALL FILTERS
+                          </button>
+                          <button
+                            onClick={handleSearchLocation}
+                            disabled={loading}
+                            className="w-full py-5 bg-black text-white font-black text-[10px] uppercase tracking-[0.3em] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                          >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            GO TO LOCATION
+                          </button>
+                        </div>
                   </div>
                 </motion.div>
               )}
@@ -3039,135 +3388,64 @@ export default function App() {
                         </p>
                       </div>
 
-                      {/* Quick Select Buttons */}
-                      <div className="flex flex-wrap gap-3">
-                        {[
-                          { name: 'New York', country: 'US', state: 'NY', city: 'New York' },
-                          { name: 'Tokyo', country: 'JP', state: '13', city: 'Tokyo' },
-                          { name: 'Kyoto', country: 'JP', state: '26', city: 'Kyoto' },
-                          { name: 'Seoul', country: 'KR', state: '11', city: 'Seoul' },
-                          { name: 'Hawaii', country: 'US', state: 'HI', city: 'Honolulu' },
-                        ].map((region) => {
-                          const isRegionActive =
-                            locationFilter.countryCode === region.country &&
-                            locationFilter.stateCode === region.state &&
-                            (locationFilter.cityName === region.city ||
-                              locationFilter.cityName === region.name ||
-                              locationFilter.stateName === region.name);
-
-                          return (
+                      <div className="space-y-4">
+                        <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">Area</label>
+                        <div className="flex flex-wrap gap-3">
+                          {areaOptions.map((area) => (
                             <button
-                              key={region.name}
-                              onClick={() => {
-                                const c = Country.getCountryByCode(region.country);
-                                const s = State.getStateByCodeAndCountry(region.state, region.country);
-                                setLocationFilter({
-                                  countryCode: region.country,
-                                  countryName: c?.name || '',
-                                  stateCode: region.state,
-                                  stateName: s?.name || '',
-                                  cityCode: region.city,
-                                  cityName: region.city,
-                                });
-                              }}
+                              key={area.key}
+                              onClick={() => setLocationFilter(createLocationFilterFromArea(area.key, area.cities[0]?.name))}
                               className={cn(
-                                "px-6 py-3 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border",
-                                isRegionActive
+                                "px-5 py-3 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border",
+                                locationFilter.areaKey === area.key
                                   ? "bg-black text-white border-black shadow-lg"
                                   : "bg-stone-50 text-stone-400 border-stone-100 hover:border-stone-300 hover:text-black"
                               )}
                             >
                               <MapPin className="w-3 h-3" />
-                              {region.name}
+                              {area.label}
                             </button>
-                          );
-                        })}
+                          ))}
+                        </div>
                       </div>
 
-                      {/* Manual Inputs Grid */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">国</label>
+                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">Area</label>
                           <select
-                            value={locationFilter.countryCode}
-                            onChange={(e) => {
-                              const country = countries.find(c => c.isoCode === e.target.value);
-                              setLocationFilter(prev => ({ 
-                                ...prev, 
-                                countryCode: e.target.value, 
-                                countryName: country?.name || '',
-                                stateCode: '',
-                                stateName: '',
-                                cityCode: '',
-                                cityName: ''
-                              }));
-                            }}
+                            value={locationFilter.areaKey}
+                            onChange={(e) => setLocationFilter(createLocationFilterFromArea(e.target.value, getAreaCityOptions(e.target.value)[0]?.name))}
                             className="w-full px-5 py-4 md:px-8 md:py-5 bg-stone-50 border border-stone-100 rounded-[1.25rem] md:rounded-[1.5rem] outline-none focus:border-black appearance-none font-bold text-sm"
                           >
-                            <option value="">Select Country</option>
-                            {countries.map(c => (
-                              <option key={c.isoCode} value={c.isoCode}>{c.name} {c.flag}</option>
+                            {areaOptions.map((area) => (
+                              <option key={area.key} value={area.key}>{area.label}</option>
                             ))}
                           </select>
                         </div>
 
                         <div className="space-y-2">
-                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">都道府県 / 州</label>
-                          <select
-                            value={locationFilter.stateCode}
-                            disabled={!locationFilter.countryCode}
-                            onChange={(e) => {
-                              const state = states.find(s => s.isoCode === e.target.value);
-                              setLocationFilter(prev => ({ 
-                                ...prev, 
-                                stateCode: e.target.value, 
-                                stateName: state?.name || '',
-                                cityCode: '',
-                                cityName: ''
-                              }));
-                            }}
-                            className="w-full px-8 py-5 bg-stone-50 border border-stone-100 rounded-[1.5rem] outline-none focus:border-black appearance-none disabled:opacity-50 font-bold text-sm"
-                          >
-                            <option value="">Select State</option>
-                            {states.map(s => (
-                              <option key={s.isoCode} value={s.isoCode}>{s.name}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">市区町村 / エリア</label>
+                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-4">City / Ward</label>
                           <select
                             value={locationFilter.cityName}
-                            disabled={!locationFilter.stateCode}
-                            onChange={(e) => {
-                              setLocationFilter(prev => ({ 
-                                ...prev, 
-                                cityCode: e.target.value, 
-                                cityName: e.target.value 
-                              }));
-                            }}
-                            className="w-full px-8 py-5 bg-stone-50 border border-stone-100 rounded-[1.5rem] outline-none focus:border-black appearance-none disabled:opacity-50 font-bold text-sm"
+                            onChange={(e) => setLocationFilter((prev) => ({ ...prev, cityCode: e.target.value, cityName: e.target.value }))}
+                            className="w-full px-8 py-5 bg-stone-50 border border-stone-100 rounded-[1.5rem] outline-none focus:border-black appearance-none font-bold text-sm"
                           >
-                            <option value="">Select City</option>
-                            {cities.map(c => (
-                              <option key={c.name} value={c.name}>{c.name}</option>
+                            {areaCityOptions.map((city) => (
+                              <option key={city.name} value={city.name}>{city.name}</option>
                             ))}
                           </select>
                         </div>
-
                       </div>
                     </div>
 
-                    {/* Action Button */}
                     <div className="space-y-6">
                       <button 
                         onClick={handleAiRecommend}
                         disabled={aiLoading}
-                        className="w-full p-6 md:p-10 bg-[#1A1A1A] text-white font-black rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center gap-3 md:gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50 tracking-[0.35em] md:tracking-[0.5em] text-[11px] md:text-xs hover:bg-black group"
+                        className="w-full p-6 md:p-10 bg-[#1A1A1A] text-white font-black rounded-[2rem] md:rounded-[2.5rem] flex items-center justify-center gap-3 md:gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50 tracking-[0.25em] md:tracking-[0.4em] text-[11px] md:text-xs hover:bg-black group"
                       >
                         {aiLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6 group-hover:scale-110 transition-transform" />}
-                        {t('getRecommendations')}
+                        Milz AI
                       </button>
                     </div>
 
@@ -3189,14 +3467,26 @@ export default function App() {
                                   transition={{ delay: i * 0.05 }}
                                   className="bg-white p-6 md:p-8 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group"
                                 >
-                                  <div className="flex items-start justify-between mb-6">
-                                    <h4 className="text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
+                                  <div className="flex items-start justify-between mb-6 gap-4">
+                                    <div>
+                                      <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">#{String(i + 1).padStart(2, '0')}</div>
+                                      <h4 className="mt-2 text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
+                                    </div>
                                     <span className="text-[9px] font-black border border-stone-200 px-4 py-2 uppercase tracking-widest rounded-full bg-stone-50">
                                       {rec.category}
                                     </span>
                                   </div>
-                                  <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-8">{rec.reason}</p>
-                                  
+                                  <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-5">{rec.reason}</p>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedAiRecommendation(rec);
+                                      recordAiMetric(rec, 'view');
+                                    }}
+                                    className="mb-4 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-stone-500 hover:text-black transition-colors"
+                                  >
+                                    <Info className="w-4 h-4" />
+                                    More
+                                  </button>
                                   <div className="flex gap-3 mt-auto">
                                     <button
                                       onClick={() => handleAiViewOnMap(rec)}
@@ -3231,31 +3521,43 @@ export default function App() {
                   <div className="lg:col-span-4 space-y-6">
                     <div className="bg-white p-5 md:p-8 xl:p-10 rounded-[2rem] md:rounded-[2.5rem] border border-stone-100 shadow-sm space-y-6 md:space-y-10 sticky top-20 md:top-24">
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">REGION SUMMARY</p>
-                        <h3 className="text-xl font-black text-black tracking-tight">{t('currentScope')}</h3>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-[0.4em]">AI RECOMMENDATION</p>
+                        <h3 className="text-xl font-black text-black tracking-tight">Top 5 in MILZ AI</h3>
                       </div>
 
-                      <div className="space-y-8">
-                        <div className="space-y-3">
-                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest flex items-center gap-2">
-                            <div className="w-1 h-1 bg-stone-400 rounded-full" />
-                            国
-                          </label>
-                          <p className="text-sm font-bold text-black bg-stone-50 p-5 rounded-2xl border border-stone-100">
-                            {locationFilter.countryName || 'Worldwide'}
-                          </p>
+                      <div className="space-y-4">
+                        <div className="rounded-[1.6rem] border border-stone-100 bg-stone-50 p-5">
+                          <div className="text-[9px] font-black uppercase tracking-[0.28em] text-stone-400">Active Area</div>
+                          <div className="mt-2 text-lg font-black tracking-tight text-black">{locationFilter.areaName}</div>
+                          <div className="mt-1 text-sm font-medium text-stone-500">{locationFilter.cityName}</div>
                         </div>
 
                         <div className="space-y-3">
-                          <label className="text-[9px] font-black text-stone-400 uppercase tracking-widest flex items-center gap-2">
-                            <div className="w-1 h-1 bg-stone-400 rounded-full" />
-                            SCOPE
-                          </label>
-                          <p className="text-sm font-bold text-black bg-stone-50 p-5 rounded-2xl border border-stone-100 leading-relaxed">
-                            {[locationFilter.countryName, locationFilter.stateName, locationFilter.cityName]
-                              .filter(Boolean)
-                              .join(' ') || 'Worldwide'}
-                          </p>
+                          {aiLeaderboard.length === 0 ? (
+                            <div className="rounded-[1.6rem] border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
+                              {locale === 'jp' ? 'ランキングデータはまだありません。Milz AIを実行するとここに人気順が表示されます。' : 'No ranking data yet. Run Milz AI and interactions will start appearing here.'}
+                            </div>
+                          ) : (
+                            aiLeaderboard.map((item, index) => (
+                              <button
+                                key={`${item.recommendation_name}-${index}`}
+                                onClick={() => handleAiViewOnMap({ name: item.recommendation_name, lat: item.lat, lng: item.lng, category: item.category, details: item.details })}
+                                className="w-full text-left rounded-[1.6rem] border border-stone-100 bg-stone-50 p-5 hover:border-black transition-all"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">Top {index + 1}</div>
+                                    <div className="mt-2 text-base font-black text-black leading-snug">{item.recommendation_name}</div>
+                                    <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.18em] text-stone-400">{item.category}</div>
+                                  </div>
+                                  <div className="text-right text-[10px] font-black uppercase tracking-[0.16em] text-stone-400">
+                                    <div>{item.favorite_count || 0} fav</div>
+                                    <div>{item.view_count || 0} views</div>
+                                  </div>
+                                </div>
+                              </button>
+                            ))
+                          )}
                         </div>
                       </div>
 
@@ -3703,7 +4005,72 @@ export default function App() {
                     </summary>
 
                     <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.9fr)]">
-                      <div className="space-y-3">
+                      <div className="space-y-6">
+                        <section className="rounded-[1.8rem] border border-stone-200 bg-stone-50 p-5 md:p-6 space-y-5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] font-black uppercase tracking-[0.24em] text-stone-400">Filter DB</div>
+                              <div className="mt-1 text-lg font-black tracking-tight text-black">{locale === 'jp' ? 'カテゴリー / バッジ管理' : 'Category / badge manager'}</div>
+                            </div>
+                            {filterOptionsLoading && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_auto] md:items-center">
+                            <select
+                              value={filterOptionKind}
+                              onChange={(e) => setFilterOptionKind(e.target.value as FilterOptionKind)}
+                              className="w-full px-4 py-3 rounded-2xl border border-stone-200 bg-white text-sm font-semibold outline-none focus:border-black"
+                            >
+                              <option value="category">Category</option>
+                              <option value="badge">Badge</option>
+                            </select>
+                            <input
+                              value={filterOptionName}
+                              onChange={(e) => setFilterOptionName(e.target.value)}
+                              placeholder={locale === 'jp' ? '例: Yukie Fav / Pet Friendly' : 'Example: Yukie Fav / Pet Friendly'}
+                              className="w-full px-4 py-3 rounded-2xl border border-stone-200 bg-white text-sm font-semibold outline-none focus:border-black"
+                            />
+                            <button
+                              onClick={handleCreateFilterOption}
+                              className="px-5 py-3 rounded-2xl bg-black text-white text-[10px] font-black uppercase tracking-[0.22em]"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-3">
+                              <div className="text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">Categories</div>
+                              <div className="flex flex-wrap gap-2">
+                                {categoryOptions.map((item) => (
+                                  <button
+                                    key={item}
+                                    onClick={() => handleDeleteFilterOption('category', item)}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-stone-300 bg-white text-[10px] font-black uppercase tracking-[0.18em] text-stone-600 hover:border-black hover:text-black"
+                                  >
+                                    {item}
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">Badges</div>
+                              <div className="flex flex-wrap gap-2">
+                                {badgeOptions.map((item) => (
+                                  <button
+                                    key={item}
+                                    onClick={() => handleDeleteFilterOption('badge', item)}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-stone-300 bg-white text-[10px] font-black uppercase tracking-[0.18em] text-stone-600 hover:border-black hover:text-black"
+                                  >
+                                    {item}
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+
+                        <div className="space-y-3">
                         <button
                           onClick={async () => {
                             addLog('Manual Connection Test: Starting...');
@@ -3850,7 +4217,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  </details>
+                  </div>
+                </details>
                 )}
               </div>
             </motion.div>
@@ -4057,7 +4425,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Category / Marker</label>
                         <select 
@@ -4065,11 +4433,39 @@ export default function App() {
                           defaultValue={editingPlace?.category || 'その他'}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium appearance-none"
                         >
-                          {Object.keys(CATEGORY_CONFIG).map(cat => (
+                          {categoryOptions.map((cat) => (
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
                         </select>
                         <p className="text-[10px] text-stone-400 leading-relaxed px-1">地図上のアイコンは、このカテゴリ設定にあわせて自動で切り替わります。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Area</label>
+                        <select
+                          value={placeEditorAreaKey}
+                          onChange={(e) => {
+                            const nextArea = e.target.value;
+                            setPlaceEditorAreaKey(nextArea);
+                            setPlaceEditorCityName(getAreaCityOptions(nextArea)[0]?.name || '');
+                          }}
+                          className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium appearance-none"
+                        >
+                          {areaOptions.map((area) => (
+                            <option key={area.key} value={area.key}>{area.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">City / Ward</label>
+                        <select
+                          value={placeEditorCityName}
+                          onChange={(e) => setPlaceEditorCityName(e.target.value)}
+                          className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium appearance-none"
+                        >
+                          {getAreaCityOptions(placeEditorAreaKey).map((city) => (
+                            <option key={city.name} value={city.name}>{city.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Website</label>
@@ -4079,6 +4475,28 @@ export default function App() {
                           placeholder="https://..."
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium"
                         />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">Badges</label>
+                      <div className="flex flex-wrap gap-2">
+                        {badgeOptions.map((badge) => {
+                          const isActive = placeEditorBadges.includes(badge);
+                          return (
+                            <button
+                              key={badge}
+                              type="button"
+                              onClick={() => setPlaceEditorBadges((prev) => prev.includes(badge) ? prev.filter((item) => item !== badge) : [...prev, badge])}
+                              className={cn(
+                                "px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.18em] transition-all",
+                                isActive ? "bg-black text-white border-black" : "bg-white text-stone-500 border-stone-200 hover:border-black hover:text-black"
+                              )}
+                            >
+                              {badge}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -5211,6 +5629,53 @@ CREATE POLICY "Users can delete own favorites" ON favorites FOR DELETE USING (au
             </motion.div>
           </div>
         )}
+        {/* AI Recommendation Detail Modal */}
+        {selectedAiRecommendation && (
+          <div className="fixed inset-0 z-[3100] bg-stone-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              className="w-full max-w-2xl rounded-[2rem] bg-white border border-stone-100 shadow-2xl p-6 md:p-8 space-y-6"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-400">AI Recommendation</div>
+                  <h3 className="mt-2 text-3xl md:text-4xl font-black tracking-tight text-black">{selectedAiRecommendation.name}</h3>
+                  <div className="mt-3 inline-flex rounded-full border border-stone-200 bg-stone-50 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-stone-500">{selectedAiRecommendation.category}</div>
+                </div>
+                <button
+                  onClick={() => setSelectedAiRecommendation(null)}
+                  className="p-3 rounded-full border border-stone-200 text-stone-500 hover:text-black hover:border-black transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <p className="text-base md:text-lg font-semibold text-stone-700 leading-relaxed">{selectedAiRecommendation.reason}</p>
+                <div className="rounded-[1.5rem] border border-stone-100 bg-stone-50 p-5 md:p-6 text-sm md:text-[15px] leading-relaxed text-stone-600 whitespace-pre-line">
+                  {selectedAiRecommendation.details || selectedAiRecommendation.reason}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => handleAiViewOnMap(selectedAiRecommendation)}
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-black text-white text-[10px] font-black uppercase tracking-[0.22em]"
+                >
+                  <MapPin className="w-4 h-4" />
+                  {t('viewOnMap')}
+                </button>
+                <button
+                  onClick={() => handleSaveAiRecommendation(selectedAiRecommendation)}
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-full border border-stone-300 text-[10px] font-black uppercase tracking-[0.22em] text-stone-700 hover:border-black hover:text-black transition-all"
+                >
+                  <Heart className="w-4 h-4" />
+                  {t('saveAi')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {/* Custom Toast */}
         {toast && (
           <motion.div
