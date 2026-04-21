@@ -122,7 +122,7 @@ export default function MilzLanding({
               <p className="text-[14px] md:text-[15px] leading-[1.9] text-[var(--gray-700)]">
                 {isJP
                   ? 'メジャーな情報はAIが答えてくれる時代。MILZ が拾うのは、その先にある、まだ名前の知られていない場所、サービス、そして人。空気まで感じとれるディテールだけを、静かに編集します。'
-                  : 'AI already covers the mainstream. MILZ looks further — toward the distinctive, the underground, the still-unnamed places, services, and people. Only the details that let you feel the atmosphere. Quietly edited.'}
+                  : 'AI already covers the mainstream. MILZ looks further — toward the distinctive, the underground, the still-unnamed places, services, and people. Only the details that let you feel the atmosphere.'}
               </p>
             </div>
             <div className="col-span-12 md:col-span-3 flex md:justify-end items-end">
@@ -216,7 +216,7 @@ export default function MilzLanding({
                 s: isJP ? 'を、編む。' : 'FIRST.',
                 d: isJP
                   ? 'メジャーはAIに任せる。MILZ が追うのは、まだ名前の知られていない場所、人、サービス。そこにしか残らない空気を、編集で残す。'
-                  : 'AI already covers the mainstream. MILZ follows what is still unnamed — the places, people, and services that only quiet editing can surface.',
+                  : 'AI already covers the mainstream. MILZ follows what is still unnamed — the places, people, and services.',
               },
               {
                 n: '02',
