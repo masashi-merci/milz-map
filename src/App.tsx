@@ -73,8 +73,6 @@ import {
   Layers3,
   Landmark,
 } from 'lucide-react';
-import ffmpegCoreUrl from './vendor/ffmpeg-core.js?url';
-import ffmpegWasmUrl from './vendor/ffmpeg-core.wasm?url';
 
 // DropZone component for drag & drop uploads
 const DropZone = ({ onFilesDrop, label, className, icon: Icon = Upload, isLoading = false, accept = "*/*" }: { 
@@ -327,7 +325,7 @@ function VideoEmbed({ url, title }: { url: string; title: string }) {
       <div className="space-y-1">
         <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/60">MILZ VIDEO</p>
         <p className="text-sm font-semibold text-white/90">Video unavailable</p>
-        <p className="text-xs text-white/60">Register an uploaded MP4 or MOV video to play it inside MILZ.</p>
+        <p className="text-xs text-white/60">Register an uploaded MP4 video to play it inside MILZ.</p>
       </div>
     </div>
   );
@@ -822,7 +820,7 @@ const createAiFavoriteSlug = (value?: string | null) => {
   return normalized || 'spot';
 };
 
-const AI_FAVORITE_COORD_PRECISION = 4;
+const AI_FAVORITE_COORD_PRECISION = 5;
 
 const createAiFavoriteKey = (rec: { lat: number; lng: number; name?: string; area_key?: string; city_name?: string }) => {
   const normalized = normalizeMapCoords(rec.lat, rec.lng);
@@ -2157,9 +2155,6 @@ export default function App() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [placeEditorVideosText, setPlaceEditorVideosText] = useState('');
-  const ffmpegRef = useRef<any>(null);
-  const ffmpegHelpersRef = useRef<{ fetchFile: (file: File) => Promise<Uint8Array>; toBlobURL: (url: string, mimeType: string) => Promise<string>; } | null>(null);
-  const ffmpegLoadingRef = useRef<Promise<any> | null>(null);
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<MapNavigator | null>(null);
@@ -2197,8 +2192,8 @@ export default function App() {
         detailedDescriptionPlaceholder: '補足情報や背景など...',
         galleryPhotos: 'ギャラリー写真（URLをカンマ区切り）',
         galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
-        videos: 'ショート動画（MOV/MP4をドロップまたはURLを1行ずつ）',
-        videosPlaceholder: 'MOV / MP4 をドロップ、または https://... を入力',
+        videos: 'ショート動画（MP4をドロップまたはURLを1行ずつ）',
+        videosPlaceholder: 'MP4 をドロップ、または https://... を入力',
         pdfs: 'PDF資料（name|url をカンマ区切り）',
         pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
         publish: 'スポットを公開',
@@ -2236,8 +2231,8 @@ export default function App() {
         detailedDescriptionPlaceholder: 'Additional background info...',
         galleryPhotos: 'Gallery Photos (Comma separated URLs)',
         galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
-        videos: 'Short videos (drop MOV/MP4 or paste URLs)',
-        videosPlaceholder: 'Drop MOV / MP4 files or paste https://... one per line',
+        videos: 'Short videos (drop MP4 or paste URLs)',
+        videosPlaceholder: 'Drop MP4 files or paste https://... one per line',
         pdfs: 'PDF Files (name|url, comma separated)',
         pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
         publish: 'Publish Spot',
@@ -3135,69 +3130,14 @@ export default function App() {
     }
   };
 
-  const loadFfmpeg = React.useCallback(async () => {
-    if (ffmpegRef.current && ffmpegHelpersRef.current) {
-      return { ffmpeg: ffmpegRef.current, ...ffmpegHelpersRef.current };
+  const ensureMp4VideoFile = React.useCallback(async (file: File) => {
+    const filename = (file.name || '').toLowerCase();
+    const isMp4 = file.type === 'video/mp4' || filename.endsWith('.mp4');
+    if (!isMp4) {
+      throw new Error(locale === 'jp' ? '動画はMP4のみアップロードできます。MOVは一旦対象外です。' : 'Only MP4 videos can be uploaded right now. MOV is not supported in the web uploader yet.');
     }
-
-    if (!ffmpegLoadingRef.current) {
-      ffmpegLoadingRef.current = (async () => {
-        const [{ FFmpeg }, { fetchFile, toBlobURL }] = await Promise.all([
-          import('@ffmpeg/ffmpeg'),
-          import('@ffmpeg/util'),
-        ]);
-
-        const ffmpeg = new FFmpeg();
-
-        await ffmpeg.load({
-          coreURL: ffmpegCoreUrl,
-          wasmURL: ffmpegWasmUrl,
-        });
-
-        ffmpegRef.current = ffmpeg;
-        ffmpegHelpersRef.current = { fetchFile, toBlobURL };
-        return { ffmpeg, fetchFile, toBlobURL };
-      })().catch((error) => {
-        ffmpegLoadingRef.current = null;
-        throw error;
-      });
-    }
-
-    return ffmpegLoadingRef.current;
-  }, []);
-
-  const convertVideoFileToMp4 = React.useCallback(async (file: File) => {
-    const filename = file.name || 'video';
-    const isMp4 = file.type === 'video/mp4' || filename.toLowerCase().endsWith('.mp4');
-    if (isMp4) return file;
-
-    const { ffmpeg, fetchFile } = await loadFfmpeg();
-    const extension = filename.includes('.') ? `.${filename.split('.').pop()?.toLowerCase()}` : '.mov';
-    const inputName = `input-${crypto.randomUUID()}${extension}`;
-    const outputName = `output-${crypto.randomUUID()}.mp4`;
-
-    try {
-      await ffmpeg.writeFile(inputName, await fetchFile(file));
-      await ffmpeg.exec([
-        '-i', inputName,
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-crf', '24',
-        '-movflags', '+faststart',
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        outputName,
-      ]);
-      const data = await ffmpeg.readFile(outputName);
-      const uint8 = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
-      const convertedName = filename.replace(/\.[^.]+$/, '') + '.mp4';
-      return new File([uint8], convertedName, { type: 'video/mp4' });
-    } finally {
-      try { await ffmpeg.deleteFile(inputName); } catch {}
-      try { await ffmpeg.deleteFile(outputName); } catch {}
-    }
-  }, [loadFfmpeg]);
+    return file;
+  }, [locale]);
 
   const validatePlayableVideoFile = React.useCallback(async (file: File) => {
     await new Promise<void>((resolve, reject) => {
@@ -3222,23 +3162,23 @@ export default function App() {
           finish(resolve);
           return;
         }
-        finish(() => reject(new Error('Video metadata is invalid.')));
+        finish(() => reject(new Error(locale === 'jp' ? '動画メタデータが不正です。MP4を書き出してから再アップしてください。' : 'Video metadata is invalid. Please export the clip as MP4 and upload it again.')));
       };
-      video.onerror = () => finish(() => reject(new Error('This video could not be decoded for playback.')));
+      video.onerror = () => finish(() => reject(new Error(locale === 'jp' ? 'このMP4はブラウザで再生できませんでした。H.264 / AAC のMP4で再書き出ししてください。' : 'This MP4 could not be played by the browser. Please export it again as H.264 / AAC MP4.')));
       video.src = objectUrl;
     });
-  }, []);
+  }, [locale]);
 
   const uploadVideoFilesToR2 = React.useCallback(async (files: File[]) => {
     const uploadedUrls: string[] = [];
     for (const file of files) {
-      const preparedFile = await convertVideoFileToMp4(file);
+      const preparedFile = await ensureMp4VideoFile(file);
       await validatePlayableVideoFile(preparedFile);
       const uploadedUrl = await uploadToR2(preparedFile);
       if (uploadedUrl) uploadedUrls.push(uploadedUrl);
     }
     return uploadedUrls;
-  }, [convertVideoFileToMp4, validatePlayableVideoFile]);
+  }, [ensureMp4VideoFile, validatePlayableVideoFile]);
 
   const handlePlaceVideoFilesDrop = async (files: File[]) => {
     if (files.length === 0) return;
@@ -3253,12 +3193,7 @@ export default function App() {
         const next = normalizeStoredVideoUrlList([prev, ...uploadedUrls].filter(Boolean).join('\n'));
         return next.join('\n');
       });
-      showToast(
-        locale === 'jp'
-          ? `動画を${uploadedUrls.length}件アップロードしました。MOVは自動でMP4に変換されています。`
-          : `Uploaded ${uploadedUrls.length} video(s). MOV files were converted to MP4 automatically.`,
-        'success'
-      );
+      showToast(locale === 'jp' ? `MP4動画を${uploadedUrls.length}件アップロードしました。` : `Uploaded ${uploadedUrls.length} MP4 video(s).`, 'success');
     } catch (error: any) {
       showToast(error?.message || (locale === 'jp' ? '動画アップロードに失敗しました。' : 'Video upload failed.'), 'error');
     } finally {
@@ -3450,10 +3385,10 @@ export default function App() {
   const handleFromSpotMediaDrop = async (itemId: string, files: File[]) => {
     if (files.length === 0) return;
     const file = files[0];
-    const isVideoFile = file.type.startsWith('video/') || /\.(mov|mp4|m4v|webm)$/i.test(file.name || '');
+    const isVideoFile = file.type === 'video/mp4' || /\.mp4$/i.test(file.name || '');
     setUploading(true);
     try {
-      const uploadedFile = isVideoFile ? await convertVideoFileToMp4(file) : file;
+      const uploadedFile = isVideoFile ? await ensureMp4VideoFile(file) : file;
       const url = await uploadToR2(uploadedFile);
       const mediaType: 'image' | 'video' = isVideoFile ? 'video' : 'image';
       setEditDetailForm((prev) => ({
@@ -4006,22 +3941,22 @@ export default function App() {
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
     });
-    const existingExact = aiFavorites.find((item) => item.key === canonicalKey) || null;
+    const existingMatch = findMatchingAiFavoriteItem(aiFavorites, normalizedRec);
     const equivalentMatches = aiFavorites.filter((item) => areAiFavoritesEquivalent(item, normalizedRec));
-    const exists = Boolean(existingExact);
+    const exists = Boolean(existingMatch);
     const favoriteItem: AiFavoriteItem = {
-      key: canonicalKey,
+      key: existingMatch?.key || canonicalKey,
       name: normalizedRec.name,
       reason: normalizedRec.reason,
       category: normalizedRec.category,
       details: normalizedRec.details || normalizedRec.reason,
       lat: normalizedRec.lat,
       lng: normalizedRec.lng,
-      created_at: existingExact?.created_at || new Date().toISOString(),
-      area_key: locationFilter.areaKey,
-      city_name: locationFilter.cityName || undefined,
+      created_at: existingMatch?.created_at || new Date().toISOString(),
+      area_key: existingMatch?.area_key || locationFilter.areaKey,
+      city_name: existingMatch?.city_name || locationFilter.cityName || undefined,
       translations: {
-        ...(existingExact?.translations || equivalentMatches[0]?.translations || {}),
+        ...(existingMatch?.translations || equivalentMatches[0]?.translations || {}),
         [locale]: {
           name: normalizedRec.name,
           reason: normalizedRec.reason,
@@ -4032,14 +3967,14 @@ export default function App() {
     };
 
     const previous = aiFavorites;
-    const filteredBase = aiFavorites.filter((item) => item.key !== canonicalKey && !equivalentMatches.some((match) => match.key === item.key));
+    const filteredBase = aiFavorites.filter((item) => !areAiFavoritesEquivalent(item, normalizedRec));
     const next = exists
       ? filteredBase
       : mergeAiFavoriteItems([favoriteItem, ...filteredBase]);
     setAiFavorites(next);
 
     const persisted = exists
-      ? await removeAiFavorite(existingExact)
+      ? await removeAiFavorite(existingMatch!)
       : await upsertAiFavorite(favoriteItem);
 
     if (!persisted) {
@@ -4064,19 +3999,17 @@ export default function App() {
   };
 
 
-  const aiFavoriteKeySet = useMemo(() => new Set(aiFavorites.map((item) => item.key)), [aiFavorites]);
-
   const isAiRecommendationSaved = React.useCallback((rec?: { name?: string; lat: number; lng: number; category?: string } | null) => {
     if (!rec) return false;
-    const key = createAiFavoriteKey({
+    return Boolean(findMatchingAiFavoriteItem(aiFavorites, {
       name: rec.name,
       lat: rec.lat,
       lng: rec.lng,
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
-    });
-    return aiFavoriteKeySet.has(key);
-  }, [aiFavoriteKeySet, locationFilter.areaKey, locationFilter.cityName]);
+      category: rec.category,
+    }));
+  }, [aiFavorites, locationFilter.areaKey, locationFilter.cityName]);
 
   const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
     setPendingMapFocus(coords);
@@ -5875,7 +5808,7 @@ Return ONLY valid JSON matching the schema.`;
                                     <div className="space-y-2">
                                       <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/40">Legacy YouTube</p>
                                       <p className="text-sm font-semibold text-white/90">Open externally</p>
-                                      <p className="text-xs leading-relaxed text-white/60">For reliable in-app playback, upload MOV / MP4 into MILZ. Legacy YouTube clips open in a new tab.</p>
+                                      <p className="text-xs leading-relaxed text-white/60">For reliable in-app playback, upload MP4 into MILZ. Legacy YouTube clips open in a new tab.</p>
                                     </div>
                                     <a
                                       href={item.url}
@@ -6852,7 +6785,7 @@ Return ONLY valid JSON matching the schema.`;
                       <div className="space-y-4">
                         <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.videos}</label>
                         <DropZone
-                          label={locale === 'jp' ? 'MOV / MP4 をドロップでアップロード' : 'Drop MOV / MP4 to upload'}
+                          label={locale === 'jp' ? 'MP4 をドロップでアップロード' : 'Drop MP4 to upload'}
                           onFilesDrop={handlePlaceVideoFilesDrop}
                           isLoading={uploading}
                           icon={Video}
@@ -6870,7 +6803,7 @@ Return ONLY valid JSON matching the schema.`;
                         <p className="px-1 text-[11px] leading-relaxed text-stone-500">
                           {locale === 'jp'
                             ? 'MOV はブラウザ内で MP4 に変換してから R2 へ保存します。既存の YouTube URL も残せますが、MILZ内再生はアップロード動画が推奨です。'
-                            : 'MOV files are converted to MP4 in the browser before uploading to R2. Legacy YouTube URLs can stay here, but uploaded video files are recommended for in-app playback.'}
+                            : 'MP4 files are uploaded directly to R2. Legacy YouTube URLs can stay here, but uploaded MP4 files are recommended for in-app playback.'}
                         </p>
                       </div>
 
@@ -7214,7 +7147,7 @@ Return ONLY valid JSON matching the schema.`;
                             <div className="space-y-4">
                               <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{locale === 'jp' ? 'Short動画（MOV / MP4をドロップまたはURL入力）' : 'Short videos (drop MOV / MP4 or paste URLs)'}</label>
                               <DropZone
-                                label={locale === 'jp' ? 'MOV / MP4 をドロップでアップロード' : 'Drop MOV / MP4 to upload'}
+                                label={locale === 'jp' ? 'MP4 をドロップでアップロード' : 'Drop MP4 to upload'}
                                 onFilesDrop={(files) => handleFilesDrop(files, 'videos')}
                                 isLoading={uploading}
                                 icon={Video}
@@ -7228,7 +7161,7 @@ Return ONLY valid JSON matching the schema.`;
                                 placeholder={locale === 'jp' ? 'アップロード済みMP4 URL または既存のYouTube URLを1行ずつ' : 'Uploaded MP4 URLs or legacy YouTube URLs, one per line'}
                                 className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                               />
-                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">{locale === 'jp' ? 'MOVはアップロード時にMP4へ自動変換され、R2から直接再生されます。' : 'MOV files are converted to MP4 on upload and played directly from R2.'}</p>
+                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">{locale === 'jp' ? 'MP4をそのままアップロードして、R2から直接再生します。' : 'MP4 files are uploaded directly to R2 and played from there.'}</p>
                             </div>
                           )}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -7362,7 +7295,7 @@ Return ONLY valid JSON matching the schema.`;
                                       />
                                       <div className="grid grid-cols-1 gap-3">
                                         <DropZone
-                                          label={locale === 'jp' ? '写真 / MOV / MP4 をアップロード' : 'Upload image / MOV / MP4'}
+                                          label={locale === 'jp' ? '写真 / MP4 をアップロード' : 'Upload image / MP4'}
                                           onFilesDrop={(files) => handleFromSpotMediaDrop(item.id, files)}
                                           isLoading={uploading}
                                           className="min-h-[160px]"
