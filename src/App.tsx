@@ -1184,7 +1184,7 @@ const uiCopy: Record<Locale, Record<string, string>> = {
 
 const AI_RECOMMENDATION_POOL_SIZE = 30;
 const AI_RECOMMENDATION_VISIBLE_COUNT = 10;
-const AI_CACHE_SCHEMA_VERSION = 3;
+const AI_CACHE_SCHEMA_VERSION = 4;
 
 type AiEditMode = 'family' | 'friends' | 'solo' | 'nature' | 'rain' | 'entertainment';
 type AiCategoryKey = 'cafe' | 'restaurant' | 'shopping' | 'entertainment' | 'nature' | 'spiritual' | 'other';
@@ -1323,6 +1323,17 @@ const normalizeAiText = (value?: string | null) => (value || '')
   .toLowerCase();
 
 const countAiSignals = (blob: string, tokens: string[]) => tokens.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0);
+
+const containsJapaneseText = (value?: string) => Boolean(value && /[぀-ヿ㐀-鿿]/.test(value));
+
+const hasMostlyTargetLocale = (results: AIResults | null | undefined, locale: Locale) => {
+  const recs = results?.recommendations || [];
+  if (!recs.length) return false;
+  const sample = recs.slice(0, 5);
+  const textBlob = sample.map((item) => [item.name, item.reason, item.details, item.editorial_note, item.best_time].filter(Boolean).join(' ')).join(' ');
+  const hasJapanese = containsJapaneseText(textBlob);
+  return locale === 'jp' ? hasJapanese : !hasJapanese;
+};
 
 const categorizeAiRecommendation = (rec: Pick<AiRecommendationItem, 'category' | 'reason' | 'details' | 'name' | 'editorial_note' | 'best_time' | 'fit_tags' | 'indoor_outdoor' | 'weather_fit' | 'social_fit' | 'energy'>): AiRecommendationTraits => {
   const category = normalizeAiText(rec.category);
@@ -3861,6 +3872,88 @@ export default function App() {
     setTempAiPin(null);
     focusMapOnCoords({ lat: normalized.lat, lng: normalized.lng });
   };
+  const translateAiResults = React.useCallback(async ({ sourceResults, targetLocale, locationStr, ai }: { sourceResults: AIResults; targetLocale: Locale; locationStr: string; ai: GoogleGenAI }) => {
+    const translationPrompt = `You are the MILZ bilingual editor. Convert the following MILZ AI recommendation pool for ${locationStr} into ${targetLocale === 'jp' ? 'natural Japanese' : 'natural English'}. Preserve the exact same 30 spots, the same order, the same category labels, and the same coordinates. Only rewrite the textual fields for the target language. Use established English place names when they exist. Return ONLY valid JSON matching the schema. Data: ${JSON.stringify(sourceResults)}`;
+
+    const translationSchema = {
+      type: Type.OBJECT,
+      properties: {
+        meta: {
+          type: Type.OBJECT,
+          properties: {
+            version: { type: Type.NUMBER },
+            source: { type: Type.STRING }
+          },
+          required: ['version', 'source']
+        },
+        recommendations: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              reason: { type: Type.STRING },
+              details: { type: Type.STRING },
+              editorial_note: { type: Type.STRING },
+              best_time: { type: Type.STRING },
+              fit_tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+              pros: { type: Type.ARRAY, items: { type: Type.STRING } },
+              cons: { type: Type.ARRAY, items: { type: Type.STRING } },
+              category: { type: Type.STRING },
+              indoor_outdoor: { type: Type.STRING },
+              weather_fit: { type: Type.STRING },
+              social_fit: { type: Type.STRING },
+              energy: { type: Type.STRING },
+              lat: { type: Type.NUMBER },
+              lng: { type: Type.NUMBER }
+            },
+            required: ['name', 'reason', 'details', 'editorial_note', 'best_time', 'fit_tags', 'pros', 'cons', 'category', 'indoor_outdoor', 'weather_fit', 'social_fit', 'energy', 'lat', 'lng']
+          }
+        }
+      },
+      required: ['meta', 'recommendations']
+    };
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: translationPrompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: translationSchema,
+      }
+    });
+
+    const parsed = JSON.parse(response.text);
+    const normalizedResults: AIResults = {
+      meta: {
+        version: AI_CACHE_SCHEMA_VERSION,
+        source: `gemini-translate-${targetLocale}`
+      },
+      recommendations: (parsed?.recommendations || [])
+        .slice(0, AI_RECOMMENDATION_POOL_SIZE)
+        .map((item: any) => ({
+          name: String(item?.name || '').trim(),
+          reason: String(item?.reason || '').trim(),
+          details: String(item?.details || '').trim(),
+          editorial_note: String(item?.editorial_note || '').trim(),
+          best_time: String(item?.best_time || '').trim(),
+          fit_tags: Array.isArray(item?.fit_tags) ? item.fit_tags.map((tag: any) => String(tag).trim()).filter(Boolean).slice(0, 3) : [],
+          pros: Array.isArray(item?.pros) ? item.pros.map((line: any) => String(line).trim()).filter(Boolean).slice(0, 3) : [],
+          cons: Array.isArray(item?.cons) ? item.cons.map((line: any) => String(line).trim()).filter(Boolean).slice(0, 2) : [],
+          category: String(item?.category || '').trim(),
+          indoor_outdoor: ['indoor', 'outdoor', 'mixed'].includes(String(item?.indoor_outdoor || '')) ? item.indoor_outdoor : 'mixed',
+          weather_fit: ['rain_ok', 'clear_best', 'all_weather'].includes(String(item?.weather_fit || '')) ? item.weather_fit : 'all_weather',
+          social_fit: ['solo', 'friends', 'family', 'mixed'].includes(String(item?.social_fit || '')) ? item.social_fit : 'mixed',
+          energy: ['quiet', 'balanced', 'lively'].includes(String(item?.energy || '')) ? item.energy : 'balanced',
+          lat: Number(item?.lat),
+          lng: Number(item?.lng),
+        }))
+        .filter((item: any) => item.name && Number.isFinite(item.lat) && Number.isFinite(item.lng)),
+    };
+
+    return normalizedResults;
+  }, []);
+
   const handleSearchLocation = async () => {
     const area = findAreaOption(locationFilter.areaKey);
     const selectedCity = area.cities.find((city) => city.name === locationFilter.cityName);
@@ -3881,8 +3974,22 @@ export default function App() {
       const type = 'recommend';
       const category = 'all';
       const locationCacheKey = `${areaKey || 'tokyo'}::${cityName || 'all'}::${locale}`;
+      const alternateLocale: Locale = locale === 'jp' ? 'en' : 'jp';
+      const alternateCacheKey = `${areaKey || 'tokyo'}::${cityName || 'all'}::${alternateLocale}`;
+      const cacheLimit = 336;
+      const isUsableAiCache = (cacheData: any, targetLocale: Locale) => {
+        const updatedAt = new Date(cacheData.updated_at).getTime();
+        const now = new Date().getTime();
+        const diffHours = (now - updatedAt) / (1000 * 60 * 60);
+        const cachedRecommendations = Array.isArray(cacheData.data?.recommendations) ? cacheData.data.recommendations : [];
+        const cacheVersion = Number(cacheData.data?.meta?.version || 0);
+        const hasRichEditorial = cachedRecommendations.length >= AI_RECOMMENDATION_POOL_SIZE && cachedRecommendations.every((item: any) => item?.details && item?.editorial_note && Array.isArray(item?.pros) && item.pros.length >= 2);
+        const hasLocaleShape = hasMostlyTargetLocale(cacheData.data, targetLocale);
+        return diffHours < cacheLimit && cacheVersion >= AI_CACHE_SCHEMA_VERSION && hasRichEditorial && hasLocaleShape;
+      };
 
       // 1. キャッシュの確認
+      let alternateValidCache: any = null;
       if (client) {
         const { data: cacheData, error: cacheError } = await client
           .from('ai_cache')
@@ -3892,26 +3999,26 @@ export default function App() {
           .eq('category', category)
           .maybeSingle();
 
-        if (!cacheError && cacheData) {
-          const updatedAt = new Date(cacheData.updated_at).getTime();
-          const now = new Date().getTime();
-          const diffHours = (now - updatedAt) / (1000 * 60 * 60);
-          const cachedRecommendations = Array.isArray(cacheData.data?.recommendations) ? cacheData.data.recommendations : [];
-          const cacheVersion = Number(cacheData.data?.meta?.version || 0);
-          const hasRichEditorial = cachedRecommendations.length >= AI_RECOMMENDATION_POOL_SIZE && cachedRecommendations.every((item: any) => item?.details && item?.editorial_note && Array.isArray(item?.pros) && item.pros.length >= 2);
+        if (!cacheError && cacheData && isUsableAiCache(cacheData, locale)) {
+          console.log(`Using cached ${type} for ${locationStr} (${locale})`);
+          setAiResults(cacheData.data);
+          setAiResultsLocale(locale);
+          setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
+          fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cacheData.data?.recommendations || []);
+          setAiLoading(false);
+          return;
+        }
 
-          // Recommendは14日間(336時間)のキャッシュ
-          const cacheLimit = 336;
+        const { data: altData, error: altError } = await client
+          .from('ai_cache')
+          .select('*')
+          .eq('type', type)
+          .eq('location_key', alternateCacheKey)
+          .eq('category', category)
+          .maybeSingle();
 
-          if (diffHours < cacheLimit && cacheVersion >= AI_CACHE_SCHEMA_VERSION && hasRichEditorial) {
-            console.log(`Using cached ${type} for ${locationStr} (${locale})`);
-            setAiResults(cacheData.data);
-            setAiResultsLocale(locale);
-            setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
-            fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, cacheData.data?.recommendations || []);
-            setAiLoading(false);
-            return;
-          }
+        if (!altError && altData && isUsableAiCache(altData, alternateLocale)) {
+          alternateValidCache = altData;
         }
       }
 
@@ -3922,6 +4029,35 @@ export default function App() {
         return;
       }
       const ai = new GoogleGenAI({ apiKey });
+
+      if (alternateValidCache?.data) {
+        const translatedResults = await translateAiResults({
+          sourceResults: alternateValidCache.data as AIResults,
+          targetLocale: locale,
+          locationStr,
+          ai,
+        });
+
+        setAiResults(translatedResults);
+        setAiResultsLocale(locale);
+        setAiResultsLocationKey(`${areaKey || locationFilter.areaKey}::${cityName || locationFilter.cityName || 'all'}`);
+        fetchAiLeaderboard(areaKey || locationFilter.areaKey, cityName || locationFilter.cityName, translatedResults.recommendations || []);
+
+        if (client) {
+          await client
+            .from('ai_cache')
+            .upsert({
+              type,
+              location_key: locationCacheKey,
+              category,
+              data: translatedResults,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'type,location_key,category' });
+        }
+
+        setAiLoading(false);
+        return;
+      }
 
       const outputLanguageInstruction = locale === 'jp'
         ? 'Write every text field in natural Japanese. Use commonly used local place names. Avoid generic wording such as 雰囲気が良い, 人気, おしゃれ by themselves. Be concrete about what the place feels like, when it works, and who it suits.'
