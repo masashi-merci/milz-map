@@ -1168,6 +1168,275 @@ const uiCopy: Record<Locale, Record<string, string>> = {
   },
 };
 
+
+const AI_RECOMMENDATION_POOL_SIZE = 24;
+const AI_RECOMMENDATION_VISIBLE_COUNT = 10;
+
+type AiEditMode = 'balanced' | 'quiet' | 'date' | 'solo' | 'rain' | 'night' | 'nature';
+
+interface AiUserProfile {
+  topCategories: string[];
+  quietLean: boolean;
+  cityKeys: string[];
+}
+
+interface AiRecommendationEditorialMeta {
+  why: string;
+  bestTime: string;
+  vibe: string;
+}
+
+const AI_EDIT_OPTIONS: Array<{ key: AiEditMode; label: Record<Locale, string>; summary: Record<Locale, string> }> = [
+  {
+    key: 'balanced',
+    label: { jp: 'BALANCED', en: 'BALANCED' },
+    summary: {
+      jp: 'MILZの基準で整えた基本セレクションです。',
+      en: 'The default MILZ edit across atmosphere, relevance, and flow.',
+    },
+  },
+  {
+    key: 'quiet',
+    label: { jp: '静かに過ごす', en: 'QUIET' },
+    summary: {
+      jp: '静けさ、余白、落ち着きやすさを優先して再編集します。',
+      en: 'Re-edits the pool for quieter, slower, more spacious places.',
+    },
+  },
+  {
+    key: 'date',
+    label: { jp: 'デート向け', en: 'DATE' },
+    summary: {
+      jp: '会話のしやすさと高揚感のある流れを優先します。',
+      en: 'Pushes spots that feel memorable, warm, and easy to talk in.',
+    },
+  },
+  {
+    key: 'solo',
+    label: { jp: 'ひとり時間', en: 'SOLO' },
+    summary: {
+      jp: '一人で整う、考える、少し離れる場所を優先します。',
+      en: 'Edits toward solo reset, reflection, and low-pressure stays.',
+    },
+  },
+  {
+    key: 'rain',
+    label: { jp: '雨の日', en: 'RAIN' },
+    summary: {
+      jp: '屋内寄りで、天候に左右されにくい候補を上げます。',
+      en: 'Brings forward indoor-leaning spots that still feel strong in the rain.',
+    },
+  },
+  {
+    key: 'night',
+    label: { jp: '夜向け', en: 'NIGHT' },
+    summary: {
+      jp: '夜に映える、食事や高揚感のある場所を優先します。',
+      en: 'Re-orders for evening energy, dining, and after-dark atmosphere.',
+    },
+  },
+  {
+    key: 'nature',
+    label: { jp: '自然寄り', en: 'NATURE' },
+    summary: {
+      jp: '自然、余白、空気感を強く感じる候補を優先します。',
+      en: 'Pushes open-air, green, and atmosphere-first recommendations.',
+    },
+  },
+];
+
+const normalizeAiText = (value?: string | null) => (value || '')
+  .normalize('NFKC')
+  .toLowerCase();
+
+const categorizeAiRecommendation = (rec: Pick<AiRecommendationItem, 'category' | 'reason' | 'details' | 'name'>) => {
+  const category = normalizeAiText(rec.category);
+  const blob = [rec.name, rec.reason, rec.details, rec.category].map(normalizeAiText).join(' ');
+  const isCafe = category.includes('カフェ') || blob.includes('coffee') || blob.includes('cafe') || blob.includes('喫茶');
+  const isRestaurant = category.includes('レストラン') || blob.includes('dining') || blob.includes('bar') || blob.includes('食');
+  const isShopping = category.includes('ショッピング') || blob.includes('shop') || blob.includes('store') || blob.includes('retail');
+  const isEntertainment = category.includes('エンターテイメント') || blob.includes('nightlife') || blob.includes('music') || blob.includes('view') || blob.includes('sky');
+  const isNature = category.includes('公園') || category.includes('自然') || blob.includes('park') || blob.includes('garden') || blob.includes('green');
+  const isShrine = category.includes('神社') || category.includes('寺院') || blob.includes('temple') || blob.includes('shrine');
+  const quietSignals = ['quiet', 'calm', 'slow', 'still', '落ち着', '静', '余白', '空気'];
+  const indoorSignals = ['indoor', 'inside', 'interior', 'gallery', 'hotel', 'shop', 'coffee', 'bar', 'restaurant', '屋内'];
+  const dateSignals = ['date', 'romantic', 'night', 'cocktail', 'dinner', 'view', '夜景', 'デート'];
+  const rainSignals = ['rain', 'covered', 'hotel', 'interior', 'indoor', '雨'];
+  const quietScore = quietSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + (isCafe ? 1 : 0) + (isNature ? 1 : 0) + (isShrine ? 1 : 0);
+  const indoorScore = indoorSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + (isCafe ? 1 : 0) + (isRestaurant ? 1 : 0) + (isShopping ? 1 : 0);
+  const dateScore = dateSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + (isRestaurant ? 1 : 0) + (isEntertainment ? 1 : 0);
+  const rainScore = rainSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + indoorScore;
+  return {
+    isCafe,
+    isRestaurant,
+    isShopping,
+    isEntertainment,
+    isNature,
+    isShrine,
+    quietScore,
+    indoorScore,
+    dateScore,
+    rainScore,
+  };
+};
+
+const getAiCategoryKey = (category?: string | null) => {
+  const normalized = normalizeAiText(category);
+  if (normalized.includes('カフェ') || normalized.includes('coffee') || normalized.includes('cafe')) return 'cafe';
+  if (normalized.includes('レストラン') || normalized.includes('restaurant')) return 'restaurant';
+  if (normalized.includes('ショッピング') || normalized.includes('shopping')) return 'shopping';
+  if (normalized.includes('エンターテイメント') || normalized.includes('entertainment')) return 'entertainment';
+  if (normalized.includes('公園') || normalized.includes('自然') || normalized.includes('park') || normalized.includes('nature')) return 'nature';
+  if (normalized.includes('神社') || normalized.includes('寺院') || normalized.includes('shrine') || normalized.includes('temple')) return 'spiritual';
+  return 'other';
+};
+
+const getMoodCategoryWeight = (mode: AiEditMode, categoryKey: string) => {
+  const matrix: Record<AiEditMode, Record<string, number>> = {
+    balanced: { cafe: 1.1, restaurant: 1.05, shopping: 1, entertainment: 1, nature: 1.05, spiritual: 1.03, other: 1 },
+    quiet: { cafe: 1.18, restaurant: 0.94, shopping: 0.9, entertainment: 0.82, nature: 1.22, spiritual: 1.2, other: 1 },
+    date: { cafe: 1.08, restaurant: 1.24, shopping: 1.14, entertainment: 1.2, nature: 0.94, spiritual: 0.9, other: 1 },
+    solo: { cafe: 1.18, restaurant: 0.96, shopping: 0.9, entertainment: 0.88, nature: 1.16, spiritual: 1.12, other: 1 },
+    rain: { cafe: 1.18, restaurant: 1.08, shopping: 1.14, entertainment: 1.08, nature: 0.78, spiritual: 0.9, other: 1 },
+    night: { cafe: 0.96, restaurant: 1.22, shopping: 1.02, entertainment: 1.25, nature: 0.86, spiritual: 0.84, other: 1 },
+    nature: { cafe: 0.94, restaurant: 0.92, shopping: 0.84, entertainment: 0.82, nature: 1.3, spiritual: 1.16, other: 1 },
+  };
+  return matrix[mode][categoryKey] ?? 1;
+};
+
+const deriveAiUserProfile = (places: Place[], favorites: Favorite[], aiFavorites: AiFavoriteItem[]): AiUserProfile => {
+  const categoryCounts = new Map<string, number>();
+  const cityCounts = new Map<string, number>();
+  const favoritePlacesById = new Map(places.map((place) => [place.id, place]));
+
+  favorites.forEach((favorite) => {
+    const place = favoritePlacesById.get(favorite.place_id);
+    if (!place) return;
+    const categoryKey = getAiCategoryKey(place.category);
+    categoryCounts.set(categoryKey, (categoryCounts.get(categoryKey) || 0) + 1);
+    const cityKey = normalizeAiText(resolvePlaceCityName(place, resolvePlaceAreaKey(place)) || place.address || '');
+    if (cityKey) cityCounts.set(cityKey, (cityCounts.get(cityKey) || 0) + 1);
+  });
+
+  aiFavorites.forEach((favorite) => {
+    const categoryKey = getAiCategoryKey(favorite.category);
+    categoryCounts.set(categoryKey, (categoryCounts.get(categoryKey) || 0) + 1);
+    const cityKey = normalizeAiText(favorite.city_name || '');
+    if (cityKey) cityCounts.set(cityKey, (cityCounts.get(cityKey) || 0) + 1);
+  });
+
+  const topCategories = Array.from(categoryCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([key]) => key);
+
+  const quietLean = ((categoryCounts.get('cafe') || 0) + (categoryCounts.get('nature') || 0) + (categoryCounts.get('spiritual') || 0)) >= ((categoryCounts.get('entertainment') || 0) + (categoryCounts.get('shopping') || 0));
+  const cityKeys = Array.from(cityCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([key]) => key);
+
+  return { topCategories, quietLean, cityKeys };
+};
+
+const scoreAiRecommendation = ({
+  rec,
+  mode,
+  profile,
+  areaKey,
+  cityName,
+  index,
+}: {
+  rec: AiRecommendationItem;
+  mode: AiEditMode;
+  profile: AiUserProfile;
+  areaKey: string;
+  cityName?: string;
+  index: number;
+}) => {
+  const categoryKey = getAiCategoryKey(rec.category);
+  const traits = categorizeAiRecommendation(rec);
+  const blob = normalizeAiText([rec.name, rec.reason, rec.details, rec.category].join(' '));
+  let score = 100 - index * 0.6;
+  score *= getMoodCategoryWeight(mode, categoryKey);
+
+  if (mode === 'quiet') score += traits.quietScore * 6 - (traits.isEntertainment ? 12 : 0);
+  if (mode === 'date') score += traits.dateScore * 5 + (traits.isRestaurant ? 10 : 0);
+  if (mode === 'solo') score += traits.quietScore * 5 + (traits.isCafe ? 6 : 0) + (traits.isNature ? 8 : 0);
+  if (mode === 'rain') score += traits.rainScore * 3 - (traits.isNature ? 10 : 0);
+  if (mode === 'night') score += traits.dateScore * 4 + (traits.isEntertainment ? 10 : 0) + (traits.isRestaurant ? 6 : 0);
+  if (mode === 'nature') score += (traits.isNature ? 18 : 0) + (traits.isShrine ? 10 : 0) - (traits.isShopping ? 8 : 0);
+
+  if (profile.topCategories.includes(categoryKey)) score += 12;
+  if (profile.quietLean && (traits.isCafe || traits.isNature || traits.isShrine)) score += 5;
+  if (!profile.quietLean && (traits.isRestaurant || traits.isEntertainment || traits.isShopping)) score += 4;
+  if (cityName && normalizeAiText(cityName) && blob.includes(normalizeAiText(cityName))) score += 3;
+  if (profile.cityKeys.some((candidate) => candidate && blob.includes(candidate))) score += 2;
+
+  return score;
+};
+
+const deriveAiBestTime = (rec: AiRecommendationItem, mode: AiEditMode, locale: Locale) => {
+  const categoryKey = getAiCategoryKey(rec.category);
+  if (mode === 'night') return locale === 'jp' ? '18:00以降' : 'After 6 PM';
+  if (mode === 'rain') return locale === 'jp' ? '雨の日の午後' : 'A rainy afternoon';
+  if (mode === 'solo') return locale === 'jp' ? '人が増える前の時間帯' : 'Before the crowd builds';
+  if (categoryKey === 'cafe') return locale === 'jp' ? '午前〜昼前' : 'Morning to late morning';
+  if (categoryKey === 'restaurant') return locale === 'jp' ? '夕方〜夜' : 'Early evening to dinner';
+  if (categoryKey === 'shopping') return locale === 'jp' ? '午後' : 'Mid-afternoon';
+  if (categoryKey === 'entertainment') return locale === 'jp' ? '夕方以降' : 'Golden hour onward';
+  if (categoryKey === 'nature' || categoryKey === 'spiritual') return locale === 'jp' ? '朝〜夕方手前' : 'Morning or late afternoon';
+  return locale === 'jp' ? '午後〜夕方' : 'Afternoon';
+};
+
+const deriveAiVibe = (rec: AiRecommendationItem, locale: Locale) => {
+  const categoryKey = getAiCategoryKey(rec.category);
+  const traits = categorizeAiRecommendation(rec);
+  if (traits.isNature || traits.isShrine) return locale === 'jp' ? '空気感を整える場所' : 'Atmosphere-first reset';
+  if (traits.isCafe) return locale === 'jp' ? '滞在で差が出る一杯' : 'A stay-over-a-sip type of stop';
+  if (traits.isRestaurant) return locale === 'jp' ? '会話で良さが出る場所' : 'Better with conversation';
+  if (traits.isEntertainment) return locale === 'jp' ? '高揚感を取りに行く候補' : 'For lift and energy';
+  if (traits.isShopping) return locale === 'jp' ? '歩きながら体感するタイプ' : 'Works best while moving through it';
+  if (categoryKey === 'other') return locale === 'jp' ? 'カテゴリーより体験重視' : 'More about feel than category';
+  return locale === 'jp' ? 'MILZ基準の再編集候補' : 'A MILZ-edited pick';
+};
+
+const deriveAiWhyFits = ({ rec, mode, profile, locale }: { rec: AiRecommendationItem; mode: AiEditMode; profile: AiUserProfile; locale: Locale }) => {
+  const categoryKey = getAiCategoryKey(rec.category);
+  if (mode === 'quiet') return locale === 'jp' ? '静けさと滞在しやすさを優先して上位に寄せています。' : 'Moved upward for quiet, slower pacing, and easier lingering.';
+  if (mode === 'date') return locale === 'jp' ? '会話のしやすさと記憶に残る流れを優先しています。' : 'Boosted for memorable flow and easier conversation.';
+  if (mode === 'solo') return locale === 'jp' ? 'ひとり時間で整いやすい候補として再編集しています。' : 'Re-ranked as a stronger solo reset option.';
+  if (mode === 'rain') return locale === 'jp' ? '天候の影響を受けにくい候補として優先しています。' : 'Promoted as a weather-proof pick.';
+  if (mode === 'night') return locale === 'jp' ? '夜の空気に相性が良い候補として上げています。' : 'Raised as a stronger after-dark option.';
+  if (mode === 'nature') return locale === 'jp' ? '空気感と余白を感じやすい候補として優先しています。' : 'Boosted for open air, calm, and room to breathe.';
+  if (profile.topCategories.includes(categoryKey)) {
+    const categoryLabel = locale === 'jp'
+      ? ({ cafe: 'カフェ', restaurant: 'レストラン', shopping: 'ショッピング', entertainment: 'エンタメ', nature: '自然系', spiritual: '寺社', other: '編集枠' } as Record<string, string>)[categoryKey]
+      : ({ cafe: 'cafe', restaurant: 'restaurant', shopping: 'shopping', entertainment: 'entertainment', nature: 'nature', spiritual: 'spiritual', other: 'editorial' } as Record<string, string>)[categoryKey];
+    return locale === 'jp'
+      ? `保存傾向を見ると${categoryLabel}系との相性が強いため、MILZが上に編集しています。`
+      : `Your saved pattern leans toward ${categoryLabel} picks, so MILZ moves this upward.`;
+  }
+  return locale === 'jp'
+    ? 'MILZの候補群の中で、空気感と移動の流れが良い側にあるため上位です。'
+    : 'MILZ keeps this high because the atmosphere and flow read strong in this pool.';
+};
+
+const buildAiCompareSummary = ({ left, right, locale }: { left: AiRecommendationItem; right: AiRecommendationItem; locale: Locale }) => {
+  const leftTraits = categorizeAiRecommendation(left);
+  const rightTraits = categorizeAiRecommendation(right);
+  const leftVibe = deriveAiVibe(left, locale);
+  const rightVibe = deriveAiVibe(right, locale);
+  const shared = leftTraits.isCafe && rightTraits.isCafe
+    ? (locale === 'jp' ? 'どちらもカフェ文脈ですが、空気感の方向が違います。' : 'Both sit in the cafe lane, but they land differently.')
+    : leftTraits.isNature && rightTraits.isNature
+      ? (locale === 'jp' ? 'どちらも自然寄りですが、滞在の質感が異なります。' : 'Both lean natural, but the stay feels different.')
+      : (locale === 'jp' ? '同じエリアでも、選ぶ理由がはっきり分かれる組み合わせです。' : 'Within the same area, these split for different reasons.');
+
+  return {
+    shared,
+    leftNote: locale === 'jp' ? `${left.name} は ${leftVibe}。` : `${left.name} leans ${leftVibe.toLowerCase()}.`,
+    rightNote: locale === 'jp' ? `${right.name} は ${rightVibe}。` : `${right.name} leans ${rightVibe.toLowerCase()}.`,
+  };
+};
+
 // Custom Map Events Component
 const TOKYO_CENTER: [number, number] = [35.6812, 139.7671];
 const DEFAULT_ZOOM = 13;
@@ -1438,6 +1707,9 @@ export default function App() {
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
   const [aiResultsLocale, setAiResultsLocale] = useState<Locale | null>(null);
   const [aiResultsLocationKey, setAiResultsLocationKey] = useState<string>('tokyo::Shibuya');
+  const [aiEditMode, setAiEditMode] = useState<AiEditMode>('balanced');
+  const [aiEditPage, setAiEditPage] = useState(0);
+  const [aiCompareKeys, setAiCompareKeys] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showSqlModal, setShowSqlModal] = useState(false);
@@ -2904,7 +3176,7 @@ export default function App() {
 
   const handleToggleFavorite = async (placeId: string) => {
     if (!user) {
-      setShowAuthModal(true);
+      showToast(locale === 'jp' ? 'ログインが必要です。' : 'Please sign in first.', 'error');
       return;
     }
 
@@ -3376,7 +3648,7 @@ export default function App() {
         ? 'Write the reason and category fields in natural Japanese. Keep place names in their commonly used local names.'
         : 'Write the reason and category fields in natural English. Keep place names in their commonly used local names.';
 
-      let prompt = `You are the MILZ city editor. Based on the location "${locationStr}", recommend exactly 10 real spots in this area. Focus on curated, stylish, memorable places that feel relevant for MILZ. Use these category labels when appropriate: カフェ, レストラン, ショッピング, エンターテイメント, 公園・自然, 神社・寺院, その他. ${outputLanguageInstruction} Each recommendation must include a short summary in "reason" and a longer editorial explanation in "details". Return ONLY valid JSON that matches the requested schema.`;
+      let prompt = `You are the MILZ city editor. Based on the location "${locationStr}", recommend exactly ${AI_RECOMMENDATION_POOL_SIZE} real spots in this area. Focus on curated, stylish, memorable places that feel relevant for MILZ. Make the full set diverse across atmosphere, pace, and time-of-day so MILZ can re-edit it later for different moods. Avoid near-duplicate picks unless they feel clearly distinct. Use these category labels when appropriate: カフェ, レストラン, ショッピング, エンターテイメント, 公園・自然, 神社・寺院, その他. ${outputLanguageInstruction} Each recommendation must include a short summary in "reason" and a longer editorial explanation in "details". Return ONLY valid JSON that matches the requested schema.`;
 
       let responseSchema = {
         type: Type.OBJECT,
@@ -3527,6 +3799,77 @@ export default function App() {
 
     return visuals;
   }, [aiResults?.recommendations, places, locationFilter.areaKey, locationFilter.cityName]);
+
+  const getAiDisplayKey = React.useCallback((rec: Pick<AiRecommendationItem, 'name' | 'lat' | 'lng'>) => createAiFavoriteKey({
+    name: rec.name,
+    lat: rec.lat,
+    lng: rec.lng,
+    area_key: locationFilter.areaKey,
+    city_name: locationFilter.cityName || undefined,
+  }), [locationFilter.areaKey, locationFilter.cityName]);
+
+  const aiUserProfile = useMemo(() => deriveAiUserProfile(places, favorites, aiFavorites), [places, favorites, aiFavorites]);
+
+  const aiScoredRecommendations = useMemo(() => {
+    const pool = aiResults?.recommendations || [];
+    return pool
+      .map((rec, index) => {
+        const score = scoreAiRecommendation({
+          rec,
+          mode: aiEditMode,
+          profile: aiUserProfile,
+          areaKey: locationFilter.areaKey,
+          cityName: locationFilter.cityName || undefined,
+          index,
+        });
+        return {
+          rec,
+          index,
+          score,
+          key: getAiDisplayKey(rec),
+          editorial: {
+            why: deriveAiWhyFits({ rec, mode: aiEditMode, profile: aiUserProfile, locale }),
+            bestTime: deriveAiBestTime(rec, aiEditMode, locale),
+            vibe: deriveAiVibe(rec, locale),
+          } as AiRecommendationEditorialMeta,
+        };
+      })
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+  }, [aiResults?.recommendations, aiEditMode, aiUserProfile, locationFilter.areaKey, locationFilter.cityName, locale, getAiDisplayKey]);
+
+  const aiRecommendationPageCount = Math.max(1, Math.ceil(aiScoredRecommendations.length / AI_RECOMMENDATION_VISIBLE_COUNT));
+
+  useEffect(() => {
+    setAiEditPage(0);
+    setAiCompareKeys([]);
+  }, [aiEditMode, aiResultsLocationKey, locale]);
+
+  const aiDisplayedRecommendations = useMemo(() => {
+    const start = aiEditPage * AI_RECOMMENDATION_VISIBLE_COUNT;
+    return aiScoredRecommendations.slice(start, start + AI_RECOMMENDATION_VISIBLE_COUNT);
+  }, [aiScoredRecommendations, aiEditPage]);
+
+  const aiComparedRecommendations = useMemo(() => aiScoredRecommendations.filter((item) => aiCompareKeys.includes(item.key)).slice(0, 2), [aiScoredRecommendations, aiCompareKeys]);
+
+  const aiCompareSummary = useMemo(() => {
+    if (aiComparedRecommendations.length !== 2) return null;
+    return buildAiCompareSummary({
+      left: aiComparedRecommendations[0].rec,
+      right: aiComparedRecommendations[1].rec,
+      locale,
+    });
+  }, [aiComparedRecommendations, locale]);
+
+  const activeAiEditOption = useMemo(() => AI_EDIT_OPTIONS.find((option) => option.key === aiEditMode) || AI_EDIT_OPTIONS[0], [aiEditMode]);
+
+  const toggleAiCompareSelection = React.useCallback((rec: AiRecommendationItem) => {
+    const key = getAiDisplayKey(rec);
+    setAiCompareKeys((prev) => {
+      if (prev.includes(key)) return prev.filter((item) => item !== key);
+      if (prev.length >= 2) return [prev[1], key];
+      return [...prev, key];
+    });
+  }, [getAiDisplayKey]);
 
   const selectedAiRecommendationVisual = useMemo(() => {
     if (!selectedAiRecommendation) return null;
@@ -4392,19 +4735,109 @@ export default function App() {
                       <div className="space-y-8 pt-8">
                         {aiResults.recommendations && (
                           <section className="space-y-6">
-                            <div className="flex items-center justify-between px-4">
-                              <h3 className="text-xs font-black text-stone-400 uppercase tracking-[0.4em]">{t('recommendedSpots')}</h3>
-                              <span className="text-[10px] font-bold text-stone-300 uppercase tracking-widest">{aiResults.recommendations.length} {t('itemsFound')}</span>
+                            <div className="flex flex-col gap-4 px-4">
+                              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+                                <div>
+                                  <h3 className="text-xs font-black text-stone-400 uppercase tracking-[0.4em]">{t('recommendedSpots')}</h3>
+                                  <p className="mt-2 text-sm text-stone-500 font-medium">
+                                    {activeAiEditOption.summary[locale]}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">
+                                  <span className="rounded-full border border-stone-200 bg-white px-3 py-2">
+                                    {locale === 'jp'
+                                      ? `${Math.min(aiDisplayedRecommendations.length, AI_RECOMMENDATION_VISIBLE_COUNT)}件表示 / 全${aiScoredRecommendations.length}件候補`
+                                      : `Showing ${Math.min(aiDisplayedRecommendations.length, AI_RECOMMENDATION_VISIBLE_COUNT)} of ${aiScoredRecommendations.length}`}
+                                  </span>
+                                  {aiRecommendationPageCount > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setAiEditPage((prev) => (prev + 1) % aiRecommendationPageCount)}
+                                      className="rounded-full border border-stone-200 bg-white px-4 py-2 text-black hover:border-black transition-all"
+                                    >
+                                      {locale === 'jp' ? '別の10件を見る' : 'More picks'}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="rounded-[1.8rem] border border-stone-100 bg-white p-5 md:p-6 shadow-sm space-y-4">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                  <div>
+                                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-stone-400">AI EDIT MODE</div>
+                                    <div className="mt-2 text-base md:text-lg font-black text-black tracking-tight">
+                                      {locale === 'jp' ? '気分と保存傾向で10件に再編集' : 'Re-edited into 10 picks using mood + saved taste'}
+                                    </div>
+                                  </div>
+                                  {aiComparedRecommendations.length > 0 && (
+                                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-stone-400">
+                                      {locale === 'jp'
+                                        ? `比較選択 ${aiComparedRecommendations.length}/2`
+                                        : `Compare ${aiComparedRecommendations.length}/2`}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {AI_EDIT_OPTIONS.map((option) => (
+                                    <button
+                                      key={option.key}
+                                      type="button"
+                                      onClick={() => setAiEditMode(option.key)}
+                                      className={cn(
+                                        "rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] transition-all",
+                                        aiEditMode === option.key
+                                          ? "border-black bg-black text-white"
+                                          : "border-stone-200 bg-stone-50 text-stone-500 hover:border-black hover:text-black"
+                                      )}
+                                    >
+                                      {option.label[locale]}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {aiCompareSummary && (
+                                <div className="rounded-[1.8rem] border border-stone-100 bg-white p-5 md:p-6 shadow-sm space-y-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-[10px] font-black uppercase tracking-[0.3em] text-stone-400">AI COMPARE</div>
+                                      <div className="mt-2 text-lg font-black text-black tracking-tight">
+                                        {aiComparedRecommendations[0].rec.name} <span className="text-stone-300">vs</span> {aiComparedRecommendations[1].rec.name}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setAiCompareKeys([])}
+                                      className="rounded-full border border-stone-200 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-stone-500 hover:border-black hover:text-black"
+                                    >
+                                      {locale === 'jp' ? '比較を解除' : 'Clear compare'}
+                                    </button>
+                                  </div>
+                                  <p className="text-sm font-medium text-stone-500 leading-relaxed">{aiCompareSummary.shared}</p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div className="rounded-[1.2rem] border border-stone-100 bg-stone-50 p-4 text-sm font-semibold text-stone-700 leading-relaxed">
+                                      {aiCompareSummary.leftNote}
+                                    </div>
+                                    <div className="rounded-[1.2rem] border border-stone-100 bg-stone-50 p-4 text-sm font-semibold text-stone-700 leading-relaxed">
+                                      {aiCompareSummary.rightNote}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              {aiResults.recommendations.map((rec, i) => {
-                                const visual = aiRecommendationVisuals.get(createAiRecommendationVisualKey(rec, i));
+                              {aiDisplayedRecommendations.map((item, visibleIndex) => {
+                                const { rec, index, key, editorial } = item;
+                                const visual = aiRecommendationVisuals.get(createAiRecommendationVisualKey(rec, index));
+                                const isCompared = aiCompareKeys.includes(key);
+                                const globalNumber = aiEditPage * AI_RECOMMENDATION_VISIBLE_COUNT + visibleIndex + 1;
                                 return (
-                                  <motion.div 
-                                    key={i}
+                                  <motion.div
+                                    key={`${key}::${aiEditMode}::${aiEditPage}`}
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: i * 0.05 }}
+                                    transition={{ delay: visibleIndex * 0.05 }}
                                     className="bg-white p-6 md:p-8 border border-stone-100 rounded-[2rem] md:rounded-[2.5rem] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col h-full group"
                                   >
                                     <div className="relative mb-6 overflow-hidden rounded-[1.6rem] border border-stone-100 bg-stone-50 aspect-[16/10]">
@@ -4420,26 +4853,56 @@ export default function App() {
                                         {visual?.source === 'place' ? 'MILZ SPOT' : 'MILZ AI CARD'}
                                       </div>
                                     </div>
-                                    <div className="flex items-start justify-between mb-6 gap-4">
+                                    <div className="flex items-start justify-between mb-5 gap-4">
                                       <div>
-                                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">#{String(i + 1).padStart(2, '0')}</div>
+                                        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-stone-300">#{String(globalNumber).padStart(2, '0')}</div>
                                         <h4 className="mt-2 text-xl font-black text-black leading-tight tracking-tight group-hover:text-stone-600 transition-colors">{rec.name}</h4>
                                       </div>
                                       <span className="text-[9px] font-black border border-stone-200 px-4 py-2 uppercase tracking-widest rounded-full bg-stone-50">
                                         {rec.category}
                                       </span>
                                     </div>
-                                    <p className="text-sm text-stone-500 leading-relaxed font-medium flex-grow mb-5">{rec.reason}</p>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedAiRecommendation(rec);
-                                        recordAiMetric(rec, 'view');
-                                      }}
-                                      className="mb-4 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-stone-500 hover:text-black transition-colors"
-                                    >
-                                      <Info className="w-4 h-4" />
-                                      More
-                                    </button>
+                                    <p className="text-sm text-stone-500 leading-relaxed font-medium mb-5">{rec.reason}</p>
+
+                                    <div className="mb-5 rounded-[1.5rem] border border-stone-100 bg-stone-50 p-4 space-y-3">
+                                      <div className="text-[9px] font-black uppercase tracking-[0.28em] text-stone-400">AI EDIT NOTE</div>
+                                      <p className="text-sm font-semibold text-stone-700 leading-relaxed">{editorial.why}</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        <span className="inline-flex items-center rounded-full border border-stone-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">
+                                          {locale === 'jp' ? `おすすめ時間 · ${editorial.bestTime}` : `Best time · ${editorial.bestTime}`}
+                                        </span>
+                                        <span className="inline-flex items-center rounded-full border border-stone-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-stone-500">
+                                          {editorial.vibe}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-3 mb-4">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleAiCompareSelection(rec)}
+                                        className={cn(
+                                          "inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] transition-colors",
+                                          isCompared ? "text-black" : "text-stone-500 hover:text-black"
+                                        )}
+                                      >
+                                        {isCompared ? <CheckCircle2 className="w-4 h-4" /> : <Layers3 className="w-4 h-4" />}
+                                        {isCompared
+                                          ? (locale === 'jp' ? '比較中' : 'Comparing')
+                                          : (locale === 'jp' ? '比較に追加' : 'Add to compare')}
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setSelectedAiRecommendation(rec);
+                                          recordAiMetric(rec, 'view');
+                                        }}
+                                        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-stone-500 hover:text-black transition-colors"
+                                      >
+                                        <Info className="w-4 h-4" />
+                                        More
+                                      </button>
+                                    </div>
+
                                     <div className="flex gap-3 mt-auto">
                                       <button
                                         onClick={() => handleAiViewOnMap(rec)}
