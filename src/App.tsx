@@ -2323,9 +2323,16 @@ export default function App() {
         const { error } = await client.auth.signUp({
           email,
           password,
+          options: {
+            emailRedirectTo: window.location.origin,
+            data: {
+              language: locale,
+              requested_role: selectedAuthRole,
+            },
+          },
         });
         if (error) throw error;
-      showToast("Check your email for confirmation!", "info");
+        showToast(locale === 'jp' ? '確認メールを送信しました。メールをご確認ください。' : 'Check your email for confirmation!', 'info');
       } else {
         const { error } = await client.auth.signInWithPassword({
           email,
