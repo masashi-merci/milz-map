@@ -1172,7 +1172,7 @@ const uiCopy: Record<Locale, Record<string, string>> = {
 const AI_RECOMMENDATION_POOL_SIZE = 24;
 const AI_RECOMMENDATION_VISIBLE_COUNT = 10;
 
-type AiEditMode = 'balanced' | 'quiet' | 'date' | 'solo' | 'rain' | 'night' | 'nature';
+type AiEditMode = 'family' | 'friends' | 'solo' | 'nature' | 'rain' | 'entertainment';
 
 interface AiUserProfile {
   topCategories: string[];
@@ -1186,37 +1186,45 @@ interface AiRecommendationEditorialMeta {
   vibe: string;
 }
 
+interface AiCompareSummary {
+  shared: string;
+  leftPros: string[];
+  leftCons: string[];
+  rightPros: string[];
+  rightCons: string[];
+}
+
 const AI_EDIT_OPTIONS: Array<{ key: AiEditMode; label: Record<Locale, string>; summary: Record<Locale, string> }> = [
   {
-    key: 'balanced',
-    label: { jp: 'BALANCED', en: 'BALANCED' },
+    key: 'family',
+    label: { jp: 'Family', en: 'FAMILY' },
     summary: {
-      jp: 'MILZの基準で整えた基本セレクションです。',
-      en: 'The default MILZ edit across atmosphere, relevance, and flow.',
+      jp: '家族で動きやすく、過ごしやすい候補を優先します。',
+      en: 'Re-edits toward family-friendly pacing, access, and lower friction stays.',
     },
   },
   {
-    key: 'quiet',
-    label: { jp: '静かに過ごす', en: 'QUIET' },
+    key: 'friends',
+    label: { jp: 'Friends', en: 'FRIENDS' },
     summary: {
-      jp: '静けさ、余白、落ち着きやすさを優先して再編集します。',
-      en: 'Re-edits the pool for quieter, slower, more spacious places.',
-    },
-  },
-  {
-    key: 'date',
-    label: { jp: 'デート向け', en: 'DATE' },
-    summary: {
-      jp: '会話のしやすさと高揚感のある流れを優先します。',
-      en: 'Pushes spots that feel memorable, warm, and easy to talk in.',
+      jp: '会話しやすく、複数人でテンポ良く回れる候補を優先します。',
+      en: 'Pushes spots that feel easy to share, compare, and move through with friends.',
     },
   },
   {
     key: 'solo',
-    label: { jp: 'ひとり時間', en: 'SOLO' },
+    label: { jp: '一人時間', en: 'SOLO' },
     summary: {
       jp: '一人で整う、考える、少し離れる場所を優先します。',
       en: 'Edits toward solo reset, reflection, and low-pressure stays.',
+    },
+  },
+  {
+    key: 'nature',
+    label: { jp: '自然', en: 'NATURE' },
+    summary: {
+      jp: '自然、余白、空気感を強く感じる候補を優先します。',
+      en: 'Pushes open-air, green, and atmosphere-first recommendations.',
     },
   },
   {
@@ -1228,22 +1236,53 @@ const AI_EDIT_OPTIONS: Array<{ key: AiEditMode; label: Record<Locale, string>; s
     },
   },
   {
-    key: 'night',
-    label: { jp: '夜向け', en: 'NIGHT' },
+    key: 'entertainment',
+    label: { jp: 'エンタメ', en: 'ENTERTAINMENT' },
     summary: {
-      jp: '夜に映える、食事や高揚感のある場所を優先します。',
-      en: 'Re-orders for evening energy, dining, and after-dark atmosphere.',
-    },
-  },
-  {
-    key: 'nature',
-    label: { jp: '自然寄り', en: 'NATURE' },
-    summary: {
-      jp: '自然、余白、空気感を強く感じる候補を優先します。',
-      en: 'Pushes open-air, green, and atmosphere-first recommendations.',
+      jp: '高揚感、話題性、遊びの密度が高い候補を優先します。',
+      en: 'Re-orders for lift, activity, and higher-energy spots.',
     },
   },
 ];
+
+const AI_MODE_CATEGORY_PLAN: Record<AiEditMode, { preferred: string[]; secondary: string[]; maxPerCategory: number; minPreferred: number }> = {
+  family: {
+    preferred: ['nature', 'entertainment', 'cafe'],
+    secondary: ['shopping', 'restaurant', 'other'],
+    maxPerCategory: 3,
+    minPreferred: 5,
+  },
+  friends: {
+    preferred: ['restaurant', 'entertainment', 'shopping'],
+    secondary: ['cafe', 'nature', 'other'],
+    maxPerCategory: 3,
+    minPreferred: 5,
+  },
+  solo: {
+    preferred: ['cafe', 'nature', 'spiritual'],
+    secondary: ['other', 'restaurant'],
+    maxPerCategory: 4,
+    minPreferred: 5,
+  },
+  nature: {
+    preferred: ['nature', 'spiritual'],
+    secondary: ['cafe', 'other'],
+    maxPerCategory: 4,
+    minPreferred: 5,
+  },
+  rain: {
+    preferred: ['cafe', 'shopping', 'restaurant'],
+    secondary: ['entertainment', 'other'],
+    maxPerCategory: 4,
+    minPreferred: 5,
+  },
+  entertainment: {
+    preferred: ['entertainment', 'restaurant', 'shopping'],
+    secondary: ['cafe', 'other'],
+    maxPerCategory: 4,
+    minPreferred: 5,
+  },
+};
 
 const normalizeAiText = (value?: string | null) => (value || '')
   .normalize('NFKC')
@@ -1293,13 +1332,12 @@ const getAiCategoryKey = (category?: string | null) => {
 
 const getMoodCategoryWeight = (mode: AiEditMode, categoryKey: string) => {
   const matrix: Record<AiEditMode, Record<string, number>> = {
-    balanced: { cafe: 1.1, restaurant: 1.05, shopping: 1, entertainment: 1, nature: 1.05, spiritual: 1.03, other: 1 },
-    quiet: { cafe: 1.18, restaurant: 0.94, shopping: 0.9, entertainment: 0.82, nature: 1.22, spiritual: 1.2, other: 1 },
-    date: { cafe: 1.08, restaurant: 1.24, shopping: 1.14, entertainment: 1.2, nature: 0.94, spiritual: 0.9, other: 1 },
-    solo: { cafe: 1.18, restaurant: 0.96, shopping: 0.9, entertainment: 0.88, nature: 1.16, spiritual: 1.12, other: 1 },
-    rain: { cafe: 1.18, restaurant: 1.08, shopping: 1.14, entertainment: 1.08, nature: 0.78, spiritual: 0.9, other: 1 },
-    night: { cafe: 0.96, restaurant: 1.22, shopping: 1.02, entertainment: 1.25, nature: 0.86, spiritual: 0.84, other: 1 },
-    nature: { cafe: 0.94, restaurant: 0.92, shopping: 0.84, entertainment: 0.82, nature: 1.3, spiritual: 1.16, other: 1 },
+    family: { cafe: 1.12, restaurant: 1.02, shopping: 1.06, entertainment: 1.18, nature: 1.22, spiritual: 0.88, other: 1 },
+    friends: { cafe: 1.04, restaurant: 1.2, shopping: 1.16, entertainment: 1.22, nature: 0.92, spiritual: 0.84, other: 1 },
+    solo: { cafe: 1.22, restaurant: 0.92, shopping: 0.88, entertainment: 0.84, nature: 1.2, spiritual: 1.18, other: 1 },
+    rain: { cafe: 1.2, restaurant: 1.08, shopping: 1.16, entertainment: 1.02, nature: 0.7, spiritual: 0.88, other: 1 },
+    nature: { cafe: 0.96, restaurant: 0.9, shopping: 0.82, entertainment: 0.8, nature: 1.34, spiritual: 1.18, other: 1 },
+    entertainment: { cafe: 0.94, restaurant: 1.12, shopping: 1.08, entertainment: 1.34, nature: 0.82, spiritual: 0.72, other: 1 },
   };
   return matrix[mode][categoryKey] ?? 1;
 };
@@ -1357,27 +1395,84 @@ const scoreAiRecommendation = ({
   let score = 100 - index * 0.6;
   score *= getMoodCategoryWeight(mode, categoryKey);
 
-  if (mode === 'quiet') score += traits.quietScore * 6 - (traits.isEntertainment ? 12 : 0);
-  if (mode === 'date') score += traits.dateScore * 5 + (traits.isRestaurant ? 10 : 0);
-  if (mode === 'solo') score += traits.quietScore * 5 + (traits.isCafe ? 6 : 0) + (traits.isNature ? 8 : 0);
-  if (mode === 'rain') score += traits.rainScore * 3 - (traits.isNature ? 10 : 0);
-  if (mode === 'night') score += traits.dateScore * 4 + (traits.isEntertainment ? 10 : 0) + (traits.isRestaurant ? 6 : 0);
-  if (mode === 'nature') score += (traits.isNature ? 18 : 0) + (traits.isShrine ? 10 : 0) - (traits.isShopping ? 8 : 0);
+  if (mode === 'family') score += (traits.isNature ? 18 : 0) + (traits.isEntertainment ? 12 : 0) + (traits.isCafe ? 8 : 0) + Math.min(traits.indoorScore, 4) - (traits.isShrine ? 6 : 0);
+  if (mode === 'friends') score += (traits.isRestaurant ? 16 : 0) + (traits.isEntertainment ? 16 : 0) + (traits.isShopping ? 10 : 0) + traits.dateScore * 3 - (traits.isShrine ? 8 : 0);
+  if (mode === 'solo') score += traits.quietScore * 7 + (traits.isCafe ? 7 : 0) + (traits.isNature ? 10 : 0) + (traits.isShrine ? 8 : 0);
+  if (mode === 'rain') score += traits.rainScore * 4 + (traits.isCafe ? 6 : 0) + (traits.isShopping ? 4 : 0) - (traits.isNature ? 16 : 0);
+  if (mode === 'entertainment') score += (traits.isEntertainment ? 18 : 0) + (traits.isRestaurant ? 8 : 0) + (traits.isShopping ? 6 : 0) + traits.dateScore * 3 - (traits.isShrine ? 10 : 0) - (traits.isNature ? 6 : 0);
+  if (mode === 'nature') score += (traits.isNature ? 22 : 0) + (traits.isShrine ? 14 : 0) + traits.quietScore * 2 - (traits.isShopping ? 12 : 0) - (traits.isEntertainment ? 10 : 0);
 
-  if (profile.topCategories.includes(categoryKey)) score += 12;
-  if (profile.quietLean && (traits.isCafe || traits.isNature || traits.isShrine)) score += 5;
-  if (!profile.quietLean && (traits.isRestaurant || traits.isEntertainment || traits.isShopping)) score += 4;
+  if (profile.topCategories.includes(categoryKey)) score += 6;
+  if (profile.quietLean && (traits.isCafe || traits.isNature || traits.isShrine)) score += 4;
+  if (!profile.quietLean && (traits.isRestaurant || traits.isEntertainment || traits.isShopping)) score += 3;
   if (cityName && normalizeAiText(cityName) && blob.includes(normalizeAiText(cityName))) score += 3;
   if (profile.cityKeys.some((candidate) => candidate && blob.includes(candidate))) score += 2;
+  if (areaKey && blob.includes(normalizeAiText(areaKey))) score += 1;
 
   return score;
 };
 
+const selectAiEditorialRecommendations = (scored: Array<{ rec: AiRecommendationItem; index: number; score: number; key: string; editorial: AiRecommendationEditorialMeta }>, mode: AiEditMode) => {
+  const plan = AI_MODE_CATEGORY_PLAN[mode];
+  const counts = new Map<string, number>();
+  const picked: typeof scored = [];
+
+  const canAdd = (item: (typeof scored)[number]) => {
+    const categoryKey = getAiCategoryKey(item.rec.category);
+    return (counts.get(categoryKey) || 0) < plan.maxPerCategory;
+  };
+
+  const addItem = (item: (typeof scored)[number]) => {
+    const categoryKey = getAiCategoryKey(item.rec.category);
+    picked.push(item);
+    counts.set(categoryKey, (counts.get(categoryKey) || 0) + 1);
+  };
+
+  const prioritize = (categories: string[]) => {
+    scored
+      .filter((item) => !picked.some((pickedItem) => pickedItem.key === item.key) && categories.includes(getAiCategoryKey(item.rec.category)))
+      .forEach((item) => {
+        if (picked.length >= AI_RECOMMENDATION_POOL_SIZE || !canAdd(item)) return;
+        addItem(item);
+      });
+  };
+
+  prioritize(plan.preferred);
+
+  if (picked.filter((item) => plan.preferred.includes(getAiCategoryKey(item.rec.category))).length < plan.minPreferred) {
+    scored
+      .filter((item) => !picked.some((pickedItem) => pickedItem.key === item.key))
+      .forEach((item) => {
+        if (picked.length >= AI_RECOMMENDATION_POOL_SIZE) return;
+        const categoryKey = getAiCategoryKey(item.rec.category);
+        if (!plan.preferred.includes(categoryKey) || !canAdd(item)) return;
+        addItem(item);
+      });
+  }
+
+  prioritize(plan.secondary);
+
+  scored.forEach((item) => {
+    if (picked.length >= AI_RECOMMENDATION_POOL_SIZE || picked.some((pickedItem) => pickedItem.key === item.key)) return;
+    if (!canAdd(item)) return;
+    addItem(item);
+  });
+
+  scored.forEach((item) => {
+    if (picked.length >= AI_RECOMMENDATION_POOL_SIZE || picked.some((pickedItem) => pickedItem.key === item.key)) return;
+    addItem(item);
+  });
+
+  return picked;
+};
+
 const deriveAiBestTime = (rec: AiRecommendationItem, mode: AiEditMode, locale: Locale) => {
   const categoryKey = getAiCategoryKey(rec.category);
-  if (mode === 'night') return locale === 'jp' ? '18:00以降' : 'After 6 PM';
+  if (mode === 'entertainment') return locale === 'jp' ? '夕方〜夜' : 'Late afternoon to night';
   if (mode === 'rain') return locale === 'jp' ? '雨の日の午後' : 'A rainy afternoon';
   if (mode === 'solo') return locale === 'jp' ? '人が増える前の時間帯' : 'Before the crowd builds';
+  if (mode === 'family') return locale === 'jp' ? '昼前後' : 'Late morning to afternoon';
+  if (mode === 'friends') return locale === 'jp' ? '午後〜夕方' : 'Afternoon to early evening';
   if (categoryKey === 'cafe') return locale === 'jp' ? '午前〜昼前' : 'Morning to late morning';
   if (categoryKey === 'restaurant') return locale === 'jp' ? '夕方〜夜' : 'Early evening to dinner';
   if (categoryKey === 'shopping') return locale === 'jp' ? '午後' : 'Mid-afternoon';
@@ -1400,11 +1495,11 @@ const deriveAiVibe = (rec: AiRecommendationItem, locale: Locale) => {
 
 const deriveAiWhyFits = ({ rec, mode, profile, locale }: { rec: AiRecommendationItem; mode: AiEditMode; profile: AiUserProfile; locale: Locale }) => {
   const categoryKey = getAiCategoryKey(rec.category);
-  if (mode === 'quiet') return locale === 'jp' ? '静けさと滞在しやすさを優先して上位に寄せています。' : 'Moved upward for quiet, slower pacing, and easier lingering.';
-  if (mode === 'date') return locale === 'jp' ? '会話のしやすさと記憶に残る流れを優先しています。' : 'Boosted for memorable flow and easier conversation.';
+  if (mode === 'family') return locale === 'jp' ? '家族で回りやすい動線と過ごしやすさを優先して上に寄せています。' : 'Moved upward for family pacing, easier flow, and lower-friction time on site.';
+  if (mode === 'friends') return locale === 'jp' ? '複数人で会話が生まれやすく、テンポ良く回れる候補として再編集しています。' : 'Re-ranked for shareability, conversation, and better group flow.';
   if (mode === 'solo') return locale === 'jp' ? 'ひとり時間で整いやすい候補として再編集しています。' : 'Re-ranked as a stronger solo reset option.';
   if (mode === 'rain') return locale === 'jp' ? '天候の影響を受けにくい候補として優先しています。' : 'Promoted as a weather-proof pick.';
-  if (mode === 'night') return locale === 'jp' ? '夜の空気に相性が良い候補として上げています。' : 'Raised as a stronger after-dark option.';
+  if (mode === 'entertainment') return locale === 'jp' ? '高揚感と話題性が出やすい候補として上位に寄せています。' : 'Raised as a stronger high-energy, higher-talk-value option.';
   if (mode === 'nature') return locale === 'jp' ? '空気感と余白を感じやすい候補として優先しています。' : 'Boosted for open air, calm, and room to breathe.';
   if (profile.topCategories.includes(categoryKey)) {
     const categoryLabel = locale === 'jp'
@@ -1419,21 +1514,45 @@ const deriveAiWhyFits = ({ rec, mode, profile, locale }: { rec: AiRecommendation
     : 'MILZ keeps this high because the atmosphere and flow read strong in this pool.';
 };
 
-const buildAiCompareSummary = ({ left, right, locale }: { left: AiRecommendationItem; right: AiRecommendationItem; locale: Locale }) => {
+const buildAiCompareSummary = ({ left, right, locale }: { left: AiRecommendationItem; right: AiRecommendationItem; locale: Locale }): AiCompareSummary => {
   const leftTraits = categorizeAiRecommendation(left);
   const rightTraits = categorizeAiRecommendation(right);
-  const leftVibe = deriveAiVibe(left, locale);
-  const rightVibe = deriveAiVibe(right, locale);
-  const shared = leftTraits.isCafe && rightTraits.isCafe
-    ? (locale === 'jp' ? 'どちらもカフェ文脈ですが、空気感の方向が違います。' : 'Both sit in the cafe lane, but they land differently.')
-    : leftTraits.isNature && rightTraits.isNature
-      ? (locale === 'jp' ? 'どちらも自然寄りですが、滞在の質感が異なります。' : 'Both lean natural, but the stay feels different.')
-      : (locale === 'jp' ? '同じエリアでも、選ぶ理由がはっきり分かれる組み合わせです。' : 'Within the same area, these split for different reasons.');
+  const leftCategory = getAiCategoryKey(left.category);
+  const rightCategory = getAiCategoryKey(right.category);
+  const shared = leftCategory === rightCategory
+    ? (locale === 'jp' ? '同じカテゴリでも、滞在の仕方と良さが分かれる組み合わせです。' : 'Even within the same category, the way you stay and enjoy them splits clearly.')
+    : (locale === 'jp' ? '同じエリアでも、使い方がはっきり分かれる組み合わせです。' : 'Even within the same area, these fit different ways of spending time.');
+
+  const prosFor = (rec: AiRecommendationItem, traits: ReturnType<typeof categorizeAiRecommendation>) => {
+    const pros: string[] = [];
+    if (traits.isNature) pros.push(locale === 'jp' ? '空気感を整えやすく、歩きながら体験しやすい。' : 'Easy to reset in, and better when you move through it slowly.');
+    if (traits.isShrine) pros.push(locale === 'jp' ? '余白と静けさを取りに行きやすい。' : 'Stronger for quiet, pause, and mental reset.');
+    if (traits.isCafe) pros.push(locale === 'jp' ? '滞在時間を取るほど良さが出やすい。' : 'Gets better when you stay instead of just passing through.');
+    if (traits.isRestaurant) pros.push(locale === 'jp' ? '食事と会話のセットで満足度が上がりやすい。' : 'Works better when dinner and conversation matter together.');
+    if (traits.isShopping) pros.push(locale === 'jp' ? '短時間でもテンポ良く回りやすい。' : 'Easy to enjoy even in a shorter visit.');
+    if (traits.isEntertainment) pros.push(locale === 'jp' ? '高揚感や話題性を作りやすい。' : 'Stronger if you want energy and something to talk about.');
+    if (!pros.length) pros.push(locale === 'jp' ? `${deriveAiVibe(rec, locale)} を取りに行きやすい。` : `Good when you want ${deriveAiVibe(rec, locale).toLowerCase()}.`);
+    return pros.slice(0, 2);
+  };
+
+  const consFor = (traits: ReturnType<typeof categorizeAiRecommendation>) => {
+    const cons: string[] = [];
+    if (traits.isNature) cons.push(locale === 'jp' ? '雨や夜だと魅力が落ちやすい。' : 'Can lose impact in rain or after dark.');
+    if (traits.isShrine) cons.push(locale === 'jp' ? 'にぎやかな会話や回遊には向きにくい。' : 'Less suited to louder, more social pacing.');
+    if (traits.isCafe) cons.push(locale === 'jp' ? 'イベント性や高揚感は強くない。' : 'Not the strongest for spectacle or high energy.');
+    if (traits.isRestaurant) cons.push(locale === 'jp' ? '短時間だけだと良さを取り切りにくい。' : 'Harder to extract the best of it in a very short stop.');
+    if (traits.isShopping) cons.push(locale === 'jp' ? '長居より回遊向きで、静けさ重視には弱い。' : 'More about movement than lingering, weaker for quiet stays.');
+    if (traits.isEntertainment) cons.push(locale === 'jp' ? '落ち着いて整えたい時には強すぎることがある。' : 'May feel too strong if you want something quieter.');
+    if (!cons.length) cons.push(locale === 'jp' ? 'カテゴリより空気感で選ぶ必要がある。' : 'Requires choosing by feel more than by category.');
+    return cons.slice(0, 2);
+  };
 
   return {
     shared,
-    leftNote: locale === 'jp' ? `${left.name} は ${leftVibe}。` : `${left.name} leans ${leftVibe.toLowerCase()}.`,
-    rightNote: locale === 'jp' ? `${right.name} は ${rightVibe}。` : `${right.name} leans ${rightVibe.toLowerCase()}.`,
+    leftPros: prosFor(left, leftTraits),
+    leftCons: consFor(leftTraits),
+    rightPros: prosFor(right, rightTraits),
+    rightCons: consFor(rightTraits),
   };
 };
 
@@ -1707,7 +1826,7 @@ export default function App() {
   const [aiResults, setAiResults] = useState<AIResults | null>(null);
   const [aiResultsLocale, setAiResultsLocale] = useState<Locale | null>(null);
   const [aiResultsLocationKey, setAiResultsLocationKey] = useState<string>('tokyo::Shibuya');
-  const [aiEditMode, setAiEditMode] = useState<AiEditMode>('balanced');
+  const [aiEditMode, setAiEditMode] = useState<AiEditMode>('family');
   const [aiEditPage, setAiEditPage] = useState(0);
   const [aiCompareKeys, setAiCompareKeys] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -3812,7 +3931,7 @@ export default function App() {
 
   const aiScoredRecommendations = useMemo(() => {
     const pool = aiResults?.recommendations || [];
-    return pool
+    const scored = pool
       .map((rec, index) => {
         const score = scoreAiRecommendation({
           rec,
@@ -3835,6 +3954,8 @@ export default function App() {
         };
       })
       .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    return selectAiEditorialRecommendations(scored, aiEditMode);
   }, [aiResults?.recommendations, aiEditMode, aiUserProfile, locationFilter.areaKey, locationFilter.cityName, locale, getAiDisplayKey]);
 
   const aiRecommendationPageCount = Math.max(1, Math.ceil(aiScoredRecommendations.length / AI_RECOMMENDATION_VISIBLE_COUNT));
@@ -4797,7 +4918,7 @@ export default function App() {
                               </div>
 
                               {aiCompareSummary && (
-                                <div className="rounded-[1.8rem] border border-stone-100 bg-white p-5 md:p-6 shadow-sm space-y-3">
+                                <div className="rounded-[1.8rem] border border-stone-100 bg-white p-5 md:p-6 shadow-sm space-y-4">
                                   <div className="flex items-center justify-between gap-3">
                                     <div>
                                       <div className="text-[10px] font-black uppercase tracking-[0.3em] text-stone-400">AI COMPARE</div>
@@ -4814,12 +4935,44 @@ export default function App() {
                                     </button>
                                   </div>
                                   <p className="text-sm font-medium text-stone-500 leading-relaxed">{aiCompareSummary.shared}</p>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div className="rounded-[1.2rem] border border-stone-100 bg-stone-50 p-4 text-sm font-semibold text-stone-700 leading-relaxed">
-                                      {aiCompareSummary.leftNote}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="rounded-[1.3rem] border border-stone-100 bg-stone-50 p-4 space-y-4">
+                                      <div className="text-base font-black text-black tracking-tight">{aiComparedRecommendations[0].rec.name}</div>
+                                      <div className="space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-[0.24em] text-stone-400">Pro</div>
+                                        <ul className="space-y-2 text-sm font-semibold text-stone-700 leading-relaxed">
+                                          {aiCompareSummary.leftPros.map((item, idx) => (
+                                            <li key={`left-pro-${idx}`} className="flex gap-2"><span className="text-black">+</span><span>{item}</span></li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-[0.24em] text-stone-400">Con</div>
+                                        <ul className="space-y-2 text-sm font-semibold text-stone-600 leading-relaxed">
+                                          {aiCompareSummary.leftCons.map((item, idx) => (
+                                            <li key={`left-con-${idx}`} className="flex gap-2"><span className="text-stone-400">−</span><span>{item}</span></li>
+                                          ))}
+                                        </ul>
+                                      </div>
                                     </div>
-                                    <div className="rounded-[1.2rem] border border-stone-100 bg-stone-50 p-4 text-sm font-semibold text-stone-700 leading-relaxed">
-                                      {aiCompareSummary.rightNote}
+                                    <div className="rounded-[1.3rem] border border-stone-100 bg-stone-50 p-4 space-y-4">
+                                      <div className="text-base font-black text-black tracking-tight">{aiComparedRecommendations[1].rec.name}</div>
+                                      <div className="space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-[0.24em] text-stone-400">Pro</div>
+                                        <ul className="space-y-2 text-sm font-semibold text-stone-700 leading-relaxed">
+                                          {aiCompareSummary.rightPros.map((item, idx) => (
+                                            <li key={`right-pro-${idx}`} className="flex gap-2"><span className="text-black">+</span><span>{item}</span></li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <div className="text-[10px] font-black uppercase tracking-[0.24em] text-stone-400">Con</div>
+                                        <ul className="space-y-2 text-sm font-semibold text-stone-600 leading-relaxed">
+                                          {aiCompareSummary.rightCons.map((item, idx) => (
+                                            <li key={`right-con-${idx}`} className="flex gap-2"><span className="text-stone-400">−</span><span>{item}</span></li>
+                                          ))}
+                                        </ul>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
