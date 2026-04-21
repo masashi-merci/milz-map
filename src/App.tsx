@@ -3858,6 +3858,18 @@ export default function App() {
     return places.filter(p => favorites.some(f => f.place_id === p.id));
   }, [places, favorites]);
 
+  const visibleListPlaces = useMemo(() => {
+    if (!(activeTab === 'list' && listFilter === 'all')) return filteredPlaces;
+    return places.filter((p) => {
+      const haystack = [p.name, p.description, p.address, p.municipality, p.area_label].filter(Boolean).join(' ').toLowerCase();
+      const matchesSearch = haystack.includes(searchQuery.toLowerCase());
+      const isInBounds = (isMapBoundsFilterEnabled && mapBounds)
+        ? mapBounds.contains([p.lat, p.lng])
+        : true;
+      return matchesSearch && isInBounds;
+    });
+  }, [activeTab, listFilter, filteredPlaces, places, searchQuery, isMapBoundsFilterEnabled, mapBounds]);
+
   const aiFavoritePlaces = useMemo(() => {
     return aiFavorites.filter((item) => {
       const localized = getAiFavoriteDisplay(item, locale);
@@ -4670,7 +4682,7 @@ export default function App() {
                     </div>
                   )
                 ) : (
-                  (listFilter === 'all' ? filteredPlaces : favoritePlaces).map((place) => {
+                  (listFilter === 'all' ? visibleListPlaces : favoritePlaces).map((place) => {
                     const isFav = favorites.some(f => f.place_id === place.id);
                     return (
                       <motion.div 
