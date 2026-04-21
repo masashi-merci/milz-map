@@ -73,6 +73,8 @@ import {
   Layers3,
   Landmark,
 } from 'lucide-react';
+import ffmpegCoreUrl from './vendor/ffmpeg-core.js?url';
+import ffmpegWasmUrl from './vendor/ffmpeg-core.wasm?url';
 
 // DropZone component for drag & drop uploads
 const DropZone = ({ onFilesDrop, label, className, icon: Icon = Upload, isLoading = false, accept = "*/*" }: { 
@@ -163,8 +165,60 @@ function isLikelyVideoUrl(url?: string | null): boolean {
   return /\.(mp4|m4v|mov|webm|ogg)(\?|$)/i.test(value) || value.startsWith('data:video/');
 }
 
+function getVideoPreferenceScore(url: string) {
+  const value = url.toLowerCase();
+  if (/\.mp4(\?|$)/.test(value)) return 5;
+  if (/\.m4v(\?|$)/.test(value)) return 4;
+  if (/\.webm(\?|$)/.test(value)) return 3;
+  if (/\.ogg(\?|$)/.test(value)) return 2;
+  if (/\.mov(\?|$)/.test(value)) return 1;
+  return 0;
+}
+
+function getVideoComparableStem(url?: string | null) {
+  const raw = (url || '').trim();
+  if (!raw) return '';
+  const youtubeId = extractYouTubeVideoId(raw);
+  if (youtubeId) return `youtube::${youtubeId}`;
+
+  try {
+    const parsed = new URL(raw, typeof window !== 'undefined' ? window.location.origin : 'https://example.com');
+    const filename = decodeURIComponent(parsed.pathname.split('/').pop() || '').toLowerCase();
+    const withoutExt = filename.replace(/\.[^.]+$/, '');
+    const afterCopy = withoutExt.includes('copy_') ? withoutExt.split('copy_').pop() || withoutExt : withoutExt;
+    return afterCopy.replace(/^[0-9a-f-]{8,}-/i, '');
+  } catch {
+    const filename = raw.toLowerCase().split('/').pop() || raw.toLowerCase();
+    const withoutExt = filename.replace(/\.[^.]+$/, '');
+    const afterCopy = withoutExt.includes('copy_') ? withoutExt.split('copy_').pop() || withoutExt : withoutExt;
+    return afterCopy.replace(/^[0-9a-f-]{8,}-/i, '');
+  }
+}
+
+function preferPlayableVideoUrls(urls: string[]): string[] {
+  const normalized = urls.filter(Boolean);
+  const chosen = new Map<string, string>();
+  const order: string[] = [];
+
+  normalized.forEach((url) => {
+    const stem = getVideoComparableStem(url) || url;
+    const existing = chosen.get(stem);
+    if (!existing) {
+      chosen.set(stem, url);
+      order.push(stem);
+      return;
+    }
+
+    if (getVideoPreferenceScore(url) > getVideoPreferenceScore(existing)) {
+      chosen.set(stem, url);
+    }
+  });
+
+  return order.map((stem) => chosen.get(stem)!).filter(Boolean);
+}
+
 function normalizeStoredVideoUrlList(raw?: string | null): string[] {
-  return parseUrlList(raw)
+  const urls = parseUrlList(raw)
     .map((value) => {
       const trimmed = value.trim();
       if (!trimmed) return null;
@@ -174,6 +228,8 @@ function normalizeStoredVideoUrlList(raw?: string | null): string[] {
       return null;
     })
     .filter((value): value is string => !!value);
+
+  return preferPlayableVideoUrls(urls);
 }
 
 function isLikelyImageUrl(url?: string | null): boolean {
@@ -766,7 +822,7 @@ const createAiFavoriteSlug = (value?: string | null) => {
   return normalized || 'spot';
 };
 
-const AI_FAVORITE_COORD_PRECISION = 3;
+const AI_FAVORITE_COORD_PRECISION = 4;
 
 const createAiFavoriteKey = (rec: { lat: number; lng: number; name?: string; area_key?: string; city_name?: string }) => {
   const normalized = normalizeMapCoords(rec.lat, rec.lng);
@@ -832,27 +888,20 @@ const areAiFavoritesEquivalent = (
   if (leftArea !== rightArea) return false;
   if (!areAiFavoriteCitiesEquivalent(left.city_name, right.city_name)) return false;
 
-  if (createAiFavoriteClusterKey({ lat: leftCoords.lat, lng: leftCoords.lng, area_key: leftArea, city_name: left.city_name }) === createAiFavoriteClusterKey({ lat: rightCoords.lat, lng: rightCoords.lng, area_key: rightArea, city_name: right.city_name })) {
-    return true;
-  }
-
-  const exactCoords = Math.abs(leftCoords.lat - rightCoords.lat) <= 0.00015 && Math.abs(leftCoords.lng - rightCoords.lng) <= 0.00015;
-  if (exactCoords) return true;
+  const leftKey = createAiFavoriteClusterKey({ lat: leftCoords.lat, lng: leftCoords.lng, area_key: leftArea, city_name: left.city_name });
+  const rightKey = createAiFavoriteClusterKey({ lat: rightCoords.lat, lng: rightCoords.lng, area_key: rightArea, city_name: right.city_name });
+  if (leftKey === rightKey) return true;
 
   const distanceMeters = getDistanceMeters(leftCoords, rightCoords);
   const leftNames = getAiFavoriteAllNames(left).map(normalizeAiComparisonName).filter(Boolean);
   const rightNames = getAiFavoriteAllNames(right).map(normalizeAiComparisonName).filter(Boolean);
   const nameMatches = leftNames.some((name) => rightNames.includes(name));
 
-  if (nameMatches && distanceMeters <= 1500) {
+  if (nameMatches && distanceMeters <= 40) {
     return true;
   }
 
-  if (distanceMeters <= 120) {
-    return true;
-  }
-
-  return Boolean(nameMatches && left.category && right.category && left.category === right.category && distanceMeters <= 2500);
+  return false;
 };
 
 const findMatchingAiFavoriteItem = (
@@ -900,7 +949,7 @@ const mapAiFavoriteRowToItem = (row: Partial<AiFavoriteRow>): AiFavoriteItem | n
   const normalized = normalizeMapCoords(row.lat as number, row.lng as number);
   if (!normalized) return null;
 
-  const key = row.canonical_key || createAiFavoriteKey({
+  const key = createAiFavoriteKey({
     name: row.name,
     lat: normalized.lat,
     lng: normalized.lng,
@@ -3099,12 +3148,10 @@ export default function App() {
         ]);
 
         const ffmpeg = new FFmpeg();
-        const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
 
         await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-          workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
+          coreURL: ffmpegCoreUrl,
+          wasmURL: ffmpegWasmUrl,
         });
 
         ffmpegRef.current = ffmpeg;
@@ -3152,15 +3199,46 @@ export default function App() {
     }
   }, [loadFfmpeg]);
 
+  const validatePlayableVideoFile = React.useCallback(async (file: File) => {
+    await new Promise<void>((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      let settled = false;
+      const cleanup = () => {
+        URL.revokeObjectURL(objectUrl);
+        video.src = '';
+      };
+      const finish = (handler: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        handler();
+      };
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      video.onloadedmetadata = () => {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          finish(resolve);
+          return;
+        }
+        finish(() => reject(new Error('Video metadata is invalid.')));
+      };
+      video.onerror = () => finish(() => reject(new Error('This video could not be decoded for playback.')));
+      video.src = objectUrl;
+    });
+  }, []);
+
   const uploadVideoFilesToR2 = React.useCallback(async (files: File[]) => {
     const uploadedUrls: string[] = [];
     for (const file of files) {
       const preparedFile = await convertVideoFileToMp4(file);
+      await validatePlayableVideoFile(preparedFile);
       const uploadedUrl = await uploadToR2(preparedFile);
       if (uploadedUrl) uploadedUrls.push(uploadedUrl);
     }
     return uploadedUrls;
-  }, [convertVideoFileToMp4]);
+  }, [convertVideoFileToMp4, validatePlayableVideoFile]);
 
   const handlePlaceVideoFilesDrop = async (files: File[]) => {
     if (files.length === 0) return;
@@ -3921,28 +3999,29 @@ export default function App() {
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
     };
-    const existingMatch = findMatchingAiFavoriteItem(aiFavorites, normalizedRec);
-    const key = existingMatch?.key || createAiFavoriteKey({
+    const canonicalKey = createAiFavoriteKey({
       name: normalizedRec.name,
       lat: normalizedRec.lat,
       lng: normalizedRec.lng,
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
     });
-    const exists = Boolean(existingMatch);
+    const existingExact = aiFavorites.find((item) => item.key === canonicalKey) || null;
+    const equivalentMatches = aiFavorites.filter((item) => areAiFavoritesEquivalent(item, normalizedRec));
+    const exists = Boolean(existingExact);
     const favoriteItem: AiFavoriteItem = {
-      key,
+      key: canonicalKey,
       name: normalizedRec.name,
       reason: normalizedRec.reason,
       category: normalizedRec.category,
       details: normalizedRec.details || normalizedRec.reason,
       lat: normalizedRec.lat,
       lng: normalizedRec.lng,
-      created_at: existingMatch?.created_at || new Date().toISOString(),
+      created_at: existingExact?.created_at || new Date().toISOString(),
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
       translations: {
-        ...(existingMatch?.translations || {}),
+        ...(existingExact?.translations || equivalentMatches[0]?.translations || {}),
         [locale]: {
           name: normalizedRec.name,
           reason: normalizedRec.reason,
@@ -3953,13 +4032,14 @@ export default function App() {
     };
 
     const previous = aiFavorites;
+    const filteredBase = aiFavorites.filter((item) => item.key !== canonicalKey && !equivalentMatches.some((match) => match.key === item.key));
     const next = exists
-      ? aiFavorites.filter((item) => item.key !== existingMatch?.key)
-      : mergeAiFavoriteItems([favoriteItem, ...aiFavorites]);
+      ? filteredBase
+      : mergeAiFavoriteItems([favoriteItem, ...filteredBase]);
     setAiFavorites(next);
 
     const persisted = exists
-      ? await removeAiFavorite(existingMatch!)
+      ? await removeAiFavorite(existingExact)
       : await upsertAiFavorite(favoriteItem);
 
     if (!persisted) {
@@ -3984,14 +4064,19 @@ export default function App() {
   };
 
 
+  const aiFavoriteKeySet = useMemo(() => new Set(aiFavorites.map((item) => item.key)), [aiFavorites]);
+
   const isAiRecommendationSaved = React.useCallback((rec?: { name?: string; lat: number; lng: number; category?: string } | null) => {
     if (!rec) return false;
-    return Boolean(findMatchingAiFavoriteItem(aiFavorites, {
-      ...rec,
+    const key = createAiFavoriteKey({
+      name: rec.name,
+      lat: rec.lat,
+      lng: rec.lng,
       area_key: locationFilter.areaKey,
       city_name: locationFilter.cityName || undefined,
-    }));
-  }, [aiFavorites, locationFilter.areaKey, locationFilter.cityName]);
+    });
+    return aiFavoriteKeySet.has(key);
+  }, [aiFavoriteKeySet, locationFilter.areaKey, locationFilter.cityName]);
 
   const focusMapOnCoords = (coords: { lat: number; lng: number }) => {
     setPendingMapFocus(coords);
@@ -4532,7 +4617,7 @@ Return ONLY valid JSON matching the schema.`;
   const shortsFeed = useMemo<ShortFeedItem[]>(() => {
     const items: ShortFeedItem[] = [];
     places.forEach((place) => {
-      (place.videos || []).forEach((url, index) => {
+      preferPlayableVideoUrls(place.videos || []).forEach((url, index) => {
         const embedUrl = getYouTubeEmbedUrl(url);
         const directVideo = isLikelyVideoUrl(url) && !embedUrl;
         if (!embedUrl && !directVideo) return;
@@ -7147,7 +7232,7 @@ Return ONLY valid JSON matching the schema.`;
                             </div>
                           )}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {((isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos) || []).filter((video) => isLikelyVideoUrl(video) || !!extractYouTubeVideoId(video)).map((video, i) => {
+                            {preferPlayableVideoUrls(((isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos) || []).filter((video) => isLikelyVideoUrl(video) || !!extractYouTubeVideoId(video))).map((video, i) => {
                               const youtubeEmbedUrl = getYouTubeEmbedUrl(video);
                               return (
                                 <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden rounded-[28px]">
