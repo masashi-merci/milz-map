@@ -1169,10 +1169,11 @@ const uiCopy: Record<Locale, Record<string, string>> = {
 };
 
 
-const AI_RECOMMENDATION_POOL_SIZE = 24;
+const AI_RECOMMENDATION_POOL_SIZE = 30;
 const AI_RECOMMENDATION_VISIBLE_COUNT = 10;
 
 type AiEditMode = 'family' | 'friends' | 'solo' | 'nature' | 'rain' | 'entertainment';
+type AiCategoryKey = 'cafe' | 'restaurant' | 'shopping' | 'entertainment' | 'nature' | 'spiritual' | 'other';
 
 interface AiUserProfile {
   topCategories: string[];
@@ -1194,93 +1195,112 @@ interface AiCompareSummary {
   rightCons: string[];
 }
 
+interface AiRecommendationTraits {
+  isCafe: boolean;
+  isRestaurant: boolean;
+  isShopping: boolean;
+  isEntertainment: boolean;
+  isNature: boolean;
+  isShrine: boolean;
+  quietScore: number;
+  indoorScore: number;
+  dateScore: number;
+  rainScore: number;
+  familyScore: number;
+  socialScore: number;
+  entertainmentScore: number;
+  natureScore: number;
+  lingerScore: number;
+  spaciousScore: number;
+}
+
 const AI_EDIT_OPTIONS: Array<{ key: AiEditMode; label: Record<Locale, string>; summary: Record<Locale, string> }> = [
   {
     key: 'family',
     label: { jp: 'Family', en: 'FAMILY' },
     summary: {
-      jp: '家族で動きやすく、過ごしやすい候補を優先します。',
-      en: 'Re-edits toward family-friendly pacing, access, and lower friction stays.',
+      jp: '家族で無理なく回れて、昼の過ごしやすさが出る候補を優先します。',
+      en: 'Brings forward lower-friction picks that work better for family pacing.',
     },
   },
   {
     key: 'friends',
     label: { jp: 'Friends', en: 'FRIENDS' },
     summary: {
-      jp: '会話しやすく、複数人でテンポ良く回れる候補を優先します。',
-      en: 'Pushes spots that feel easy to share, compare, and move through with friends.',
+      jp: '会話が生まれやすく、複数人でテンポ良く回れる候補を優先します。',
+      en: 'Pushes spots that are easier to share, compare, and move through with friends.',
     },
   },
   {
     key: 'solo',
     label: { jp: '一人時間', en: 'SOLO' },
     summary: {
-      jp: '一人で整う、考える、少し離れる場所を優先します。',
-      en: 'Edits toward solo reset, reflection, and low-pressure stays.',
+      jp: '一人で整う、考える、少し距離を取るための候補を優先します。',
+      en: 'Edits toward solo reset, reflection, and atmosphere-led stays.',
     },
   },
   {
     key: 'nature',
     label: { jp: '自然', en: 'NATURE' },
     summary: {
-      jp: '自然、余白、空気感を強く感じる候補を優先します。',
-      en: 'Pushes open-air, green, and atmosphere-first recommendations.',
+      jp: '緑、余白、空気感を感じやすい候補を強く優先します。',
+      en: 'Strongly prioritizes green, open-air, and atmosphere-first picks.',
     },
   },
   {
     key: 'rain',
     label: { jp: '雨の日', en: 'RAIN' },
     summary: {
-      jp: '屋内寄りで、天候に左右されにくい候補を上げます。',
-      en: 'Brings forward indoor-leaning spots that still feel strong in the rain.',
+      jp: '屋内寄りで、雨の日でも体験が崩れにくい候補を優先します。',
+      en: 'Re-edits toward indoor-leaning spots that still work well in the rain.',
     },
   },
   {
     key: 'entertainment',
     label: { jp: 'エンタメ', en: 'ENTERTAINMENT' },
     summary: {
-      jp: '高揚感、話題性、遊びの密度が高い候補を優先します。',
-      en: 'Re-orders for lift, activity, and higher-energy spots.',
+      jp: '高揚感、話題性、遊びの密度が出る候補を優先します。',
+      en: 'Raises higher-energy picks with stronger activity and talk value.',
     },
   },
 ];
 
-const AI_MODE_CATEGORY_PLAN: Record<AiEditMode, { preferred: string[]; secondary: string[]; maxPerCategory: number; minPreferred: number }> = {
+const AI_MODE_CATEGORY_PLAN: Record<AiEditMode, { heroSlots: AiCategoryKey[]; preferred: AiCategoryKey[]; fallback: AiCategoryKey[]; maxPerCategory: Partial<Record<AiCategoryKey, number>>; }> = {
   family: {
-    preferred: ['nature', 'entertainment', 'cafe'],
-    secondary: ['shopping', 'restaurant', 'other'],
-    maxPerCategory: 3,
-    minPreferred: 5,
+    heroSlots: ['nature', 'nature', 'cafe', 'entertainment', 'nature', 'shopping', 'restaurant', 'cafe', 'entertainment', 'other'],
+    preferred: ['nature', 'cafe', 'entertainment', 'shopping', 'restaurant', 'other'],
+    fallback: ['spiritual'],
+    maxPerCategory: { nature: 4, cafe: 3, entertainment: 2, shopping: 2, restaurant: 2, other: 1, spiritual: 1 },
   },
   friends: {
-    preferred: ['restaurant', 'entertainment', 'shopping'],
-    secondary: ['cafe', 'nature', 'other'],
-    maxPerCategory: 3,
-    minPreferred: 5,
+    heroSlots: ['restaurant', 'entertainment', 'shopping', 'restaurant', 'entertainment', 'cafe', 'shopping', 'restaurant', 'other', 'nature'],
+    preferred: ['restaurant', 'entertainment', 'shopping', 'cafe', 'other', 'nature'],
+    fallback: ['spiritual'],
+    maxPerCategory: { restaurant: 4, entertainment: 3, shopping: 3, cafe: 2, other: 2, nature: 1, spiritual: 1 },
   },
   solo: {
-    preferred: ['cafe', 'nature', 'spiritual'],
-    secondary: ['other', 'restaurant'],
-    maxPerCategory: 4,
-    minPreferred: 5,
+    heroSlots: ['cafe', 'nature', 'spiritual', 'cafe', 'nature', 'other', 'cafe', 'spiritual', 'restaurant', 'other'],
+    preferred: ['cafe', 'nature', 'spiritual', 'other', 'restaurant'],
+    fallback: ['shopping', 'entertainment'],
+    maxPerCategory: { cafe: 4, nature: 3, spiritual: 3, other: 2, restaurant: 1, shopping: 1, entertainment: 1 },
   },
   nature: {
-    preferred: ['nature', 'spiritual'],
-    secondary: ['cafe', 'other'],
-    maxPerCategory: 4,
-    minPreferred: 5,
+    heroSlots: ['nature', 'nature', 'spiritual', 'nature', 'cafe', 'nature', 'spiritual', 'cafe', 'other', 'nature'],
+    preferred: ['nature', 'spiritual', 'cafe', 'other'],
+    fallback: ['restaurant'],
+    maxPerCategory: { nature: 5, spiritual: 3, cafe: 2, other: 2, restaurant: 1, shopping: 0, entertainment: 0 },
   },
   rain: {
-    preferred: ['cafe', 'shopping', 'restaurant'],
-    secondary: ['entertainment', 'other'],
-    maxPerCategory: 4,
-    minPreferred: 5,
+    heroSlots: ['cafe', 'shopping', 'restaurant', 'cafe', 'shopping', 'restaurant', 'entertainment', 'cafe', 'other', 'shopping'],
+    preferred: ['cafe', 'shopping', 'restaurant', 'entertainment', 'other'],
+    fallback: ['nature', 'spiritual'],
+    maxPerCategory: { cafe: 4, shopping: 4, restaurant: 3, entertainment: 2, other: 2, nature: 1, spiritual: 1 },
   },
   entertainment: {
-    preferred: ['entertainment', 'restaurant', 'shopping'],
-    secondary: ['cafe', 'other'],
-    maxPerCategory: 4,
-    minPreferred: 5,
+    heroSlots: ['entertainment', 'restaurant', 'shopping', 'entertainment', 'restaurant', 'shopping', 'cafe', 'entertainment', 'other', 'restaurant'],
+    preferred: ['entertainment', 'restaurant', 'shopping', 'cafe', 'other'],
+    fallback: ['nature'],
+    maxPerCategory: { entertainment: 4, restaurant: 4, shopping: 3, cafe: 2, other: 2, nature: 1, spiritual: 0 },
   },
 };
 
@@ -1288,23 +1308,29 @@ const normalizeAiText = (value?: string | null) => (value || '')
   .normalize('NFKC')
   .toLowerCase();
 
-const categorizeAiRecommendation = (rec: Pick<AiRecommendationItem, 'category' | 'reason' | 'details' | 'name'>) => {
+const countAiSignals = (blob: string, tokens: string[]) => tokens.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0);
+
+const categorizeAiRecommendation = (rec: Pick<AiRecommendationItem, 'category' | 'reason' | 'details' | 'name'>): AiRecommendationTraits => {
   const category = normalizeAiText(rec.category);
   const blob = [rec.name, rec.reason, rec.details, rec.category].map(normalizeAiText).join(' ');
   const isCafe = category.includes('カフェ') || blob.includes('coffee') || blob.includes('cafe') || blob.includes('喫茶');
-  const isRestaurant = category.includes('レストラン') || blob.includes('dining') || blob.includes('bar') || blob.includes('食');
-  const isShopping = category.includes('ショッピング') || blob.includes('shop') || blob.includes('store') || blob.includes('retail');
-  const isEntertainment = category.includes('エンターテイメント') || blob.includes('nightlife') || blob.includes('music') || blob.includes('view') || blob.includes('sky');
-  const isNature = category.includes('公園') || category.includes('自然') || blob.includes('park') || blob.includes('garden') || blob.includes('green');
+  const isRestaurant = category.includes('レストラン') || blob.includes('dining') || blob.includes('bar') || blob.includes('food') || blob.includes('食');
+  const isShopping = category.includes('ショッピング') || blob.includes('shop') || blob.includes('store') || blob.includes('market') || blob.includes('retail');
+  const isEntertainment = category.includes('エンターテイメント') || blob.includes('nightlife') || blob.includes('music') || blob.includes('view') || blob.includes('sky') || blob.includes('museum') || blob.includes('gallery');
+  const isNature = category.includes('公園') || category.includes('自然') || blob.includes('park') || blob.includes('garden') || blob.includes('green') || blob.includes('river');
   const isShrine = category.includes('神社') || category.includes('寺院') || blob.includes('temple') || blob.includes('shrine');
-  const quietSignals = ['quiet', 'calm', 'slow', 'still', '落ち着', '静', '余白', '空気'];
-  const indoorSignals = ['indoor', 'inside', 'interior', 'gallery', 'hotel', 'shop', 'coffee', 'bar', 'restaurant', '屋内'];
-  const dateSignals = ['date', 'romantic', 'night', 'cocktail', 'dinner', 'view', '夜景', 'デート'];
-  const rainSignals = ['rain', 'covered', 'hotel', 'interior', 'indoor', '雨'];
-  const quietScore = quietSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + (isCafe ? 1 : 0) + (isNature ? 1 : 0) + (isShrine ? 1 : 0);
-  const indoorScore = indoorSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + (isCafe ? 1 : 0) + (isRestaurant ? 1 : 0) + (isShopping ? 1 : 0);
-  const dateScore = dateSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + (isRestaurant ? 1 : 0) + (isEntertainment ? 1 : 0);
-  const rainScore = rainSignals.reduce((sum, token) => sum + (blob.includes(token) ? 1 : 0), 0) + indoorScore;
+
+  const quietScore = countAiSignals(blob, ['quiet', 'calm', 'slow', 'still', '落ち着', '静', '余白', '空気', 'reset', 'reflect']) + (isCafe ? 1 : 0) + (isNature ? 2 : 0) + (isShrine ? 2 : 0);
+  const indoorScore = countAiSignals(blob, ['indoor', 'inside', 'interior', 'gallery', 'hotel', 'shop', 'coffee', 'bar', 'restaurant', 'museum', 'covered', '屋内']) + (isCafe ? 2 : 0) + (isRestaurant ? 2 : 0) + (isShopping ? 2 : 0) + (isEntertainment ? 1 : 0);
+  const dateScore = countAiSignals(blob, ['date', 'romantic', 'night', 'cocktail', 'dinner', 'view', '夜景', 'デート']) + (isRestaurant ? 2 : 0) + (isEntertainment ? 2 : 0);
+  const rainScore = countAiSignals(blob, ['rain', 'covered', 'hotel', 'interior', 'indoor', '雨', 'gallery', 'museum']) + indoorScore;
+  const familyScore = countAiSignals(blob, ['family', 'kids', 'child', 'children', 'play', 'picnic', 'safe', '広場', '芝生', '家族']) + (isNature ? 3 : 0) + (isEntertainment ? 1 : 0) + (isCafe ? 1 : 0) + (isShrine ? 0 : 0);
+  const socialScore = countAiSignals(blob, ['friends', 'group', 'share', 'conversation', 'bar', 'cocktail', 'dinner', 'market', 'walk', '会話', '複数']) + (isRestaurant ? 2 : 0) + (isEntertainment ? 2 : 0) + (isShopping ? 2 : 0);
+  const entertainmentScore = countAiSignals(blob, ['music', 'show', 'nightlife', 'view', 'sky', 'museum', 'gallery', 'live', 'event', '話題', '高揚']) + (isEntertainment ? 3 : 0) + (isShopping ? 1 : 0);
+  const natureScore = countAiSignals(blob, ['park', 'garden', 'green', 'river', 'open', 'tree', '緑', '自然', '空気']) + (isNature ? 3 : 0) + (isShrine ? 1 : 0);
+  const lingerScore = countAiSignals(blob, ['linger', 'stay', 'sit', 'slow', 'quiet', 'coffee', 'long', '滞在', '余白']) + (isCafe ? 3 : 0) + (isNature ? 1 : 0) + (isRestaurant ? 1 : 0);
+  const spaciousScore = countAiSignals(blob, ['wide', 'large', 'open', 'spacious', 'green', 'park', '広い', '開放']) + (isNature ? 2 : 0);
+
   return {
     isCafe,
     isRestaurant,
@@ -1316,10 +1342,16 @@ const categorizeAiRecommendation = (rec: Pick<AiRecommendationItem, 'category' |
     indoorScore,
     dateScore,
     rainScore,
+    familyScore,
+    socialScore,
+    entertainmentScore,
+    natureScore,
+    lingerScore,
+    spaciousScore,
   };
 };
 
-const getAiCategoryKey = (category?: string | null) => {
+const getAiCategoryKey = (category?: string | null): AiCategoryKey => {
   const normalized = normalizeAiText(category);
   if (normalized.includes('カフェ') || normalized.includes('coffee') || normalized.includes('cafe')) return 'cafe';
   if (normalized.includes('レストラン') || normalized.includes('restaurant')) return 'restaurant';
@@ -1330,14 +1362,14 @@ const getAiCategoryKey = (category?: string | null) => {
   return 'other';
 };
 
-const getMoodCategoryWeight = (mode: AiEditMode, categoryKey: string) => {
-  const matrix: Record<AiEditMode, Record<string, number>> = {
-    family: { cafe: 1.12, restaurant: 1.02, shopping: 1.06, entertainment: 1.18, nature: 1.22, spiritual: 0.88, other: 1 },
-    friends: { cafe: 1.04, restaurant: 1.2, shopping: 1.16, entertainment: 1.22, nature: 0.92, spiritual: 0.84, other: 1 },
-    solo: { cafe: 1.22, restaurant: 0.92, shopping: 0.88, entertainment: 0.84, nature: 1.2, spiritual: 1.18, other: 1 },
-    rain: { cafe: 1.2, restaurant: 1.08, shopping: 1.16, entertainment: 1.02, nature: 0.7, spiritual: 0.88, other: 1 },
-    nature: { cafe: 0.96, restaurant: 0.9, shopping: 0.82, entertainment: 0.8, nature: 1.34, spiritual: 1.18, other: 1 },
-    entertainment: { cafe: 0.94, restaurant: 1.12, shopping: 1.08, entertainment: 1.34, nature: 0.82, spiritual: 0.72, other: 1 },
+const getMoodCategoryWeight = (mode: AiEditMode, categoryKey: AiCategoryKey) => {
+  const matrix: Record<AiEditMode, Record<AiCategoryKey, number>> = {
+    family: { cafe: 1.14, restaurant: 1.02, shopping: 1.08, entertainment: 1.18, nature: 1.28, spiritual: 0.78, other: 0.96 },
+    friends: { cafe: 1.05, restaurant: 1.24, shopping: 1.18, entertainment: 1.24, nature: 0.86, spiritual: 0.72, other: 0.94 },
+    solo: { cafe: 1.24, restaurant: 0.86, shopping: 0.78, entertainment: 0.72, nature: 1.22, spiritual: 1.24, other: 1.02 },
+    rain: { cafe: 1.22, restaurant: 1.1, shopping: 1.18, entertainment: 1.06, nature: 0.52, spiritual: 0.72, other: 1.02 },
+    nature: { cafe: 0.98, restaurant: 0.78, shopping: 0.62, entertainment: 0.56, nature: 1.52, spiritual: 1.3, other: 0.96 },
+    entertainment: { cafe: 0.92, restaurant: 1.14, shopping: 1.12, entertainment: 1.42, nature: 0.6, spiritual: 0.52, other: 0.96 },
   };
   return matrix[mode][categoryKey] ?? 1;
 };
@@ -1368,7 +1400,7 @@ const deriveAiUserProfile = (places: Place[], favorites: Favorite[], aiFavorites
     .slice(0, 3)
     .map(([key]) => key);
 
-  const quietLean = ((categoryCounts.get('cafe') || 0) + (categoryCounts.get('nature') || 0) + (categoryCounts.get('spiritual') || 0)) >= ((categoryCounts.get('entertainment') || 0) + (categoryCounts.get('shopping') || 0));
+  const quietLean = ((categoryCounts.get('cafe') || 0) + (categoryCounts.get('nature') || 0) + (categoryCounts.get('spiritual') || 0)) >= ((categoryCounts.get('entertainment') || 0) + (categoryCounts.get('shopping') || 0) + (categoryCounts.get('restaurant') || 0));
   const cityKeys = Array.from(cityCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([key]) => key);
 
   return { topCategories, quietLean, cityKeys };
@@ -1392,75 +1424,88 @@ const scoreAiRecommendation = ({
   const categoryKey = getAiCategoryKey(rec.category);
   const traits = categorizeAiRecommendation(rec);
   const blob = normalizeAiText([rec.name, rec.reason, rec.details, rec.category].join(' '));
-  let score = 100 - index * 0.6;
+  let score = 120 - index * 0.8;
   score *= getMoodCategoryWeight(mode, categoryKey);
 
-  if (mode === 'family') score += (traits.isNature ? 18 : 0) + (traits.isEntertainment ? 12 : 0) + (traits.isCafe ? 8 : 0) + Math.min(traits.indoorScore, 4) - (traits.isShrine ? 6 : 0);
-  if (mode === 'friends') score += (traits.isRestaurant ? 16 : 0) + (traits.isEntertainment ? 16 : 0) + (traits.isShopping ? 10 : 0) + traits.dateScore * 3 - (traits.isShrine ? 8 : 0);
-  if (mode === 'solo') score += traits.quietScore * 7 + (traits.isCafe ? 7 : 0) + (traits.isNature ? 10 : 0) + (traits.isShrine ? 8 : 0);
-  if (mode === 'rain') score += traits.rainScore * 4 + (traits.isCafe ? 6 : 0) + (traits.isShopping ? 4 : 0) - (traits.isNature ? 16 : 0);
-  if (mode === 'entertainment') score += (traits.isEntertainment ? 18 : 0) + (traits.isRestaurant ? 8 : 0) + (traits.isShopping ? 6 : 0) + traits.dateScore * 3 - (traits.isShrine ? 10 : 0) - (traits.isNature ? 6 : 0);
-  if (mode === 'nature') score += (traits.isNature ? 22 : 0) + (traits.isShrine ? 14 : 0) + traits.quietScore * 2 - (traits.isShopping ? 12 : 0) - (traits.isEntertainment ? 10 : 0);
+  const modeBase: Record<AiEditMode, number> = {
+    family: traits.familyScore * 8 + traits.spaciousScore * 3 + traits.rainScore * 1.8 + traits.socialScore * 1.2 - (traits.isShrine ? 8 : 0),
+    friends: traits.socialScore * 7 + traits.entertainmentScore * 4 + traits.dateScore * 3 + (traits.isRestaurant ? 6 : 0) - traits.quietScore,
+    solo: traits.quietScore * 7 + traits.lingerScore * 4 + traits.natureScore * 2 + (traits.isEntertainment ? 8 : 0) * -1,
+    nature: traits.natureScore * 8 + traits.quietScore * 3 + traits.spaciousScore * 3 - (traits.isShopping ? 10 : 0) - (traits.isEntertainment ? 12 : 0),
+    rain: traits.rainScore * 5 + traits.indoorScore * 3 + (traits.isCafe ? 4 : 0) + (traits.isShopping ? 4 : 0) - (traits.isNature ? 22 : 0),
+    entertainment: traits.entertainmentScore * 7 + traits.socialScore * 3 + traits.dateScore * 2 + (traits.isNature ? 10 : 0) * -1 - (traits.isShrine ? 10 : 0),
+  };
+  score += modeBase[mode];
 
-  if (profile.topCategories.includes(categoryKey)) score += 6;
+  if (profile.topCategories.includes(categoryKey)) score += 7;
   if (profile.quietLean && (traits.isCafe || traits.isNature || traits.isShrine)) score += 4;
-  if (!profile.quietLean && (traits.isRestaurant || traits.isEntertainment || traits.isShopping)) score += 3;
-  if (cityName && normalizeAiText(cityName) && blob.includes(normalizeAiText(cityName))) score += 3;
-  if (profile.cityKeys.some((candidate) => candidate && blob.includes(candidate))) score += 2;
-  if (areaKey && blob.includes(normalizeAiText(areaKey))) score += 1;
+  if (!profile.quietLean && (traits.isRestaurant || traits.isEntertainment || traits.isShopping)) score += 4;
+  if (cityName && normalizeAiText(cityName) && blob.includes(normalizeAiText(cityName))) score += 4;
+  if (profile.cityKeys.some((candidate) => candidate && blob.includes(candidate))) score += 3;
+  if (areaKey && blob.includes(normalizeAiText(areaKey))) score += 2;
 
   return score;
 };
 
-const selectAiEditorialRecommendations = (scored: Array<{ rec: AiRecommendationItem; index: number; score: number; key: string; editorial: AiRecommendationEditorialMeta }>, mode: AiEditMode) => {
+const selectAiEditorialRecommendations = (
+  scored: Array<{ rec: AiRecommendationItem; index: number; score: number; key: string; editorial: AiRecommendationEditorialMeta }>,
+  mode: AiEditMode,
+) => {
   const plan = AI_MODE_CATEGORY_PLAN[mode];
-  const counts = new Map<string, number>();
   const picked: typeof scored = [];
+  const pickedKeys = new Set<string>();
+  const categoryCounts = new Map<AiCategoryKey, number>();
+  const maxFor = (categoryKey: AiCategoryKey) => plan.maxPerCategory[categoryKey] ?? 99;
+
+  const remainingByCategory = (categoryKey: AiCategoryKey) => scored.filter((item) => !pickedKeys.has(item.key) && getAiCategoryKey(item.rec.category) === categoryKey);
 
   const canAdd = (item: (typeof scored)[number]) => {
     const categoryKey = getAiCategoryKey(item.rec.category);
-    return (counts.get(categoryKey) || 0) < plan.maxPerCategory;
+    return (categoryCounts.get(categoryKey) || 0) < maxFor(categoryKey);
   };
 
-  const addItem = (item: (typeof scored)[number]) => {
+  const add = (item?: (typeof scored)[number]) => {
+    if (!item || pickedKeys.has(item.key) || !canAdd(item)) return false;
     const categoryKey = getAiCategoryKey(item.rec.category);
     picked.push(item);
-    counts.set(categoryKey, (counts.get(categoryKey) || 0) + 1);
+    pickedKeys.add(item.key);
+    categoryCounts.set(categoryKey, (categoryCounts.get(categoryKey) || 0) + 1);
+    return true;
   };
 
-  const prioritize = (categories: string[]) => {
-    scored
-      .filter((item) => !picked.some((pickedItem) => pickedItem.key === item.key) && categories.includes(getAiCategoryKey(item.rec.category)))
-      .forEach((item) => {
-        if (picked.length >= AI_RECOMMENDATION_POOL_SIZE || !canAdd(item)) return;
-        addItem(item);
-      });
+  const strictFallbackAllowed = (item: (typeof scored)[number]) => {
+    const categoryKey = getAiCategoryKey(item.rec.category);
+    if (mode === 'nature') return !['shopping', 'entertainment'].includes(categoryKey);
+    if (mode === 'rain') return !(categoryKey === 'nature' && categorizeAiRecommendation(item.rec).rainScore < 4);
+    if (mode === 'entertainment') return !['spiritual'].includes(categoryKey);
+    return true;
   };
 
-  prioritize(plan.preferred);
-
-  if (picked.filter((item) => plan.preferred.includes(getAiCategoryKey(item.rec.category))).length < plan.minPreferred) {
-    scored
-      .filter((item) => !picked.some((pickedItem) => pickedItem.key === item.key))
-      .forEach((item) => {
-        if (picked.length >= AI_RECOMMENDATION_POOL_SIZE) return;
-        const categoryKey = getAiCategoryKey(item.rec.category);
-        if (!plan.preferred.includes(categoryKey) || !canAdd(item)) return;
-        addItem(item);
-      });
-  }
-
-  prioritize(plan.secondary);
-
-  scored.forEach((item) => {
-    if (picked.length >= AI_RECOMMENDATION_POOL_SIZE || picked.some((pickedItem) => pickedItem.key === item.key)) return;
-    if (!canAdd(item)) return;
-    addItem(item);
+  plan.heroSlots.forEach((categoryKey) => {
+    const candidate = remainingByCategory(categoryKey).find(strictFallbackAllowed);
+    add(candidate);
   });
 
-  scored.forEach((item) => {
-    if (picked.length >= AI_RECOMMENDATION_POOL_SIZE || picked.some((pickedItem) => pickedItem.key === item.key)) return;
-    addItem(item);
+  plan.preferred.forEach((categoryKey) => {
+    remainingByCategory(categoryKey).forEach((candidate) => {
+      if (picked.length >= AI_RECOMMENDATION_VISIBLE_COUNT) return;
+      add(candidate);
+    });
+  });
+
+  scored.forEach((candidate) => {
+    if (picked.length >= AI_RECOMMENDATION_VISIBLE_COUNT) return;
+    if (!strictFallbackAllowed(candidate)) return;
+    add(candidate);
+  });
+
+  const orderedRemainder = scored.filter((candidate) => !pickedKeys.has(candidate.key));
+  const preferredRemainder = orderedRemainder.filter((candidate) => plan.preferred.includes(getAiCategoryKey(candidate.rec.category)) && strictFallbackAllowed(candidate));
+  const fallbackRemainder = orderedRemainder.filter((candidate) => !plan.preferred.includes(getAiCategoryKey(candidate.rec.category)) && strictFallbackAllowed(candidate));
+
+  [...preferredRemainder, ...fallbackRemainder, ...orderedRemainder].forEach((candidate) => {
+    if (picked.length >= AI_RECOMMENDATION_POOL_SIZE) return;
+    add(candidate);
   });
 
   return picked;
@@ -1495,64 +1540,93 @@ const deriveAiVibe = (rec: AiRecommendationItem, locale: Locale) => {
 
 const deriveAiWhyFits = ({ rec, mode, profile, locale }: { rec: AiRecommendationItem; mode: AiEditMode; profile: AiUserProfile; locale: Locale }) => {
   const categoryKey = getAiCategoryKey(rec.category);
-  if (mode === 'family') return locale === 'jp' ? '家族で回りやすい動線と過ごしやすさを優先して上に寄せています。' : 'Moved upward for family pacing, easier flow, and lower-friction time on site.';
-  if (mode === 'friends') return locale === 'jp' ? '複数人で会話が生まれやすく、テンポ良く回れる候補として再編集しています。' : 'Re-ranked for shareability, conversation, and better group flow.';
-  if (mode === 'solo') return locale === 'jp' ? 'ひとり時間で整いやすい候補として再編集しています。' : 'Re-ranked as a stronger solo reset option.';
-  if (mode === 'rain') return locale === 'jp' ? '天候の影響を受けにくい候補として優先しています。' : 'Promoted as a weather-proof pick.';
-  if (mode === 'entertainment') return locale === 'jp' ? '高揚感と話題性が出やすい候補として上位に寄せています。' : 'Raised as a stronger high-energy, higher-talk-value option.';
-  if (mode === 'nature') return locale === 'jp' ? '空気感と余白を感じやすい候補として優先しています。' : 'Boosted for open air, calm, and room to breathe.';
+  const traits = categorizeAiRecommendation(rec);
+  if (mode === 'family') return locale === 'jp' ? `家族での移動しやすさ、過ごしやすさ、${traits.isNature ? '外気を感じる余白' : '天候耐性'}を見て上に寄せています。` : 'Moved up for family pacing, lower friction, and stronger all-ages usability.';
+  if (mode === 'friends') return locale === 'jp' ? '複数人で会話が生まれやすく、比較しながら回れる候補として再編集しています。' : 'Re-ranked for shareability, conversation, and easier group movement.';
+  if (mode === 'solo') return locale === 'jp' ? 'ひとり時間で整う、滞在して効いてくる候補として再編集しています。' : 'Re-ranked as a stronger solo reset option that rewards staying.';
+  if (mode === 'rain') return locale === 'jp' ? '雨でも崩れにくい屋内寄りの体験として優先しています。' : 'Promoted as a stronger weather-proof, indoor-leaning option.';
+  if (mode === 'entertainment') return locale === 'jp' ? '高揚感、話題性、回遊のテンポが出やすい候補として上位に寄せています。' : 'Raised as a higher-energy option with stronger activity and talk value.';
+  if (mode === 'nature') return locale === 'jp' ? '緑、余白、空気感が出やすい候補として強く優先しています。' : 'Boosted for green, open-air atmosphere, and room to breathe.';
   if (profile.topCategories.includes(categoryKey)) {
     const categoryLabel = locale === 'jp'
       ? ({ cafe: 'カフェ', restaurant: 'レストラン', shopping: 'ショッピング', entertainment: 'エンタメ', nature: '自然系', spiritual: '寺社', other: '編集枠' } as Record<string, string>)[categoryKey]
       : ({ cafe: 'cafe', restaurant: 'restaurant', shopping: 'shopping', entertainment: 'entertainment', nature: 'nature', spiritual: 'spiritual', other: 'editorial' } as Record<string, string>)[categoryKey];
     return locale === 'jp'
-      ? `保存傾向を見ると${categoryLabel}系との相性が強いため、MILZが上に編集しています。`
+      ? `保存傾向を見ると${categoryLabel}系との相性が強いため、MILZがこの候補を上に編集しています。`
       : `Your saved pattern leans toward ${categoryLabel} picks, so MILZ moves this upward.`;
   }
   return locale === 'jp'
-    ? 'MILZの候補群の中で、空気感と移動の流れが良い側にあるため上位です。'
-    : 'MILZ keeps this high because the atmosphere and flow read strong in this pool.';
+    ? '30件の候補の中で、今回のモードに対して体験の筋が良い側にあるため上位です。'
+    : 'This stays high because it fits the current mode better within the 30-pick pool.';
 };
 
 const buildAiCompareSummary = ({ left, right, locale }: { left: AiRecommendationItem; right: AiRecommendationItem; locale: Locale }): AiCompareSummary => {
   const leftTraits = categorizeAiRecommendation(left);
   const rightTraits = categorizeAiRecommendation(right);
-  const leftCategory = getAiCategoryKey(left.category);
-  const rightCategory = getAiCategoryKey(right.category);
-  const shared = leftCategory === rightCategory
-    ? (locale === 'jp' ? '同じカテゴリでも、滞在の仕方と良さが分かれる組み合わせです。' : 'Even within the same category, the way you stay and enjoy them splits clearly.')
-    : (locale === 'jp' ? '同じエリアでも、使い方がはっきり分かれる組み合わせです。' : 'Even within the same area, these fit different ways of spending time.');
+  const shared = (() => {
+    const quietDiff = leftTraits.quietScore - rightTraits.quietScore;
+    const socialDiff = leftTraits.socialScore - rightTraits.socialScore;
+    const weatherDiff = leftTraits.rainScore - rightTraits.rainScore;
+    if (Math.abs(quietDiff) > 2 && Math.abs(socialDiff) > 2) {
+      if (quietDiff > 0 && socialDiff < 0) {
+        return locale === 'jp'
+          ? `${left.name} は整える時間向き、${right.name} は会話とテンポ向きです。`
+          : `${left.name} leans toward reset, while ${right.name} is stronger for conversation and pace.`;
+      }
+      if (quietDiff < 0 && socialDiff > 0) {
+        return locale === 'jp'
+          ? `${right.name} は整える時間向き、${left.name} は会話とテンポ向きです。`
+          : `${right.name} leans toward reset, while ${left.name} is stronger for conversation and pace.`;
+      }
+    }
+    if (Math.abs(weatherDiff) > 3) {
+      return locale === 'jp'
+        ? '片方は雨でも崩れにくく、もう片方は天気が良い時に魅力が伸びる組み合わせです。'
+        : 'One stays strong in the rain, while the other opens up more in better weather.';
+    }
+    return locale === 'jp'
+      ? '同じエリアでも、滞在の仕方と良さがはっきり分かれる組み合わせです。'
+      : 'Even in the same area, these split clearly by how you spend time there.';
+  })();
 
-  const prosFor = (rec: AiRecommendationItem, traits: ReturnType<typeof categorizeAiRecommendation>) => {
-    const pros: string[] = [];
-    if (traits.isNature) pros.push(locale === 'jp' ? '空気感を整えやすく、歩きながら体験しやすい。' : 'Easy to reset in, and better when you move through it slowly.');
-    if (traits.isShrine) pros.push(locale === 'jp' ? '余白と静けさを取りに行きやすい。' : 'Stronger for quiet, pause, and mental reset.');
-    if (traits.isCafe) pros.push(locale === 'jp' ? '滞在時間を取るほど良さが出やすい。' : 'Gets better when you stay instead of just passing through.');
-    if (traits.isRestaurant) pros.push(locale === 'jp' ? '食事と会話のセットで満足度が上がりやすい。' : 'Works better when dinner and conversation matter together.');
-    if (traits.isShopping) pros.push(locale === 'jp' ? '短時間でもテンポ良く回りやすい。' : 'Easy to enjoy even in a shorter visit.');
-    if (traits.isEntertainment) pros.push(locale === 'jp' ? '高揚感や話題性を作りやすい。' : 'Stronger if you want energy and something to talk about.');
-    if (!pros.length) pros.push(locale === 'jp' ? `${deriveAiVibe(rec, locale)} を取りに行きやすい。` : `Good when you want ${deriveAiVibe(rec, locale).toLowerCase()}.`);
-    return pros.slice(0, 2);
+  const describePros = (rec: AiRecommendationItem, traits: AiRecommendationTraits, other: AiRecommendationTraits) => {
+    const items: Array<{ score: number; text: string }> = [];
+    if (traits.quietScore >= other.quietScore + 2) items.push({ score: traits.quietScore, text: locale === 'jp' ? '静けさや余白を取りに行く時に向いています。' : 'Stronger when you want quiet, pause, and room to breathe.' });
+    if (traits.socialScore >= other.socialScore + 2) items.push({ score: traits.socialScore, text: locale === 'jp' ? '会話や複数人での回遊に向いています。' : 'Better for conversation, sharing, and moving through with others.' });
+    if (traits.rainScore >= other.rainScore + 3) items.push({ score: traits.rainScore, text: locale === 'jp' ? '天候に左右されにくく、雨の日でも崩れにくいです。' : 'Holds up better in bad weather and rain.' });
+    if (traits.entertainmentScore >= other.entertainmentScore + 2) items.push({ score: traits.entertainmentScore, text: locale === 'jp' ? '高揚感や話題性を作りやすいです。' : 'Stronger if you want lift, novelty, and something to talk about.' });
+    if (traits.lingerScore >= other.lingerScore + 2) items.push({ score: traits.lingerScore, text: locale === 'jp' ? '短時間より、少し滞在した時に良さが出やすいです。' : 'Gets better when you stay a little longer instead of rushing through.' });
+    if (traits.familyScore >= other.familyScore + 2) items.push({ score: traits.familyScore, text: locale === 'jp' ? '家族で合わせやすく、動線の負担が少ないです。' : 'Easier to align around for families and lower-friction pacing.' });
+
+    if (traits.isNature) items.push({ score: 3, text: locale === 'jp' ? '緑や外気を感じながら体験しやすいです。' : 'Lets the green and open air do more of the work.' });
+    if (traits.isCafe) items.push({ score: 2.5, text: locale === 'jp' ? '一杯そのものより、滞在の空気感で効いてきます。' : 'Works more through the feel of staying than the drink alone.' });
+    if (traits.isRestaurant) items.push({ score: 2.5, text: locale === 'jp' ? '食事と会話をセットで取りに行く時に強いです。' : 'Stronger when meal quality and conversation matter together.' });
+    if (traits.isEntertainment) items.push({ score: 2.5, text: locale === 'jp' ? '記憶に残る体験や高揚感を作りやすいです。' : 'Better for memorable, higher-energy experiences.' });
+
+    return Array.from(new Map(items.sort((a, b) => b.score - a.score).map((item) => [item.text, item])).values()).slice(0, 3).map((item) => item.text);
   };
 
-  const consFor = (traits: ReturnType<typeof categorizeAiRecommendation>) => {
-    const cons: string[] = [];
-    if (traits.isNature) cons.push(locale === 'jp' ? '雨や夜だと魅力が落ちやすい。' : 'Can lose impact in rain or after dark.');
-    if (traits.isShrine) cons.push(locale === 'jp' ? 'にぎやかな会話や回遊には向きにくい。' : 'Less suited to louder, more social pacing.');
-    if (traits.isCafe) cons.push(locale === 'jp' ? 'イベント性や高揚感は強くない。' : 'Not the strongest for spectacle or high energy.');
-    if (traits.isRestaurant) cons.push(locale === 'jp' ? '短時間だけだと良さを取り切りにくい。' : 'Harder to extract the best of it in a very short stop.');
-    if (traits.isShopping) cons.push(locale === 'jp' ? '長居より回遊向きで、静けさ重視には弱い。' : 'More about movement than lingering, weaker for quiet stays.');
-    if (traits.isEntertainment) cons.push(locale === 'jp' ? '落ち着いて整えたい時には強すぎることがある。' : 'May feel too strong if you want something quieter.');
-    if (!cons.length) cons.push(locale === 'jp' ? 'カテゴリより空気感で選ぶ必要がある。' : 'Requires choosing by feel more than by category.');
-    return cons.slice(0, 2);
+  const describeCons = (rec: AiRecommendationItem, traits: AiRecommendationTraits, other: AiRecommendationTraits) => {
+    const items: Array<{ score: number; text: string }> = [];
+    if (traits.quietScore + 2 <= other.quietScore) items.push({ score: 5, text: locale === 'jp' ? '整える時間を取りたい時には、相手側の方が向いています。' : 'If you want a quieter reset, the other option fits better.' });
+    if (traits.socialScore + 2 <= other.socialScore) items.push({ score: 5, text: locale === 'jp' ? '複数人での会話やテンポでは、相手側の方が強いです。' : 'The other option is stronger for group talk and social pacing.' });
+    if (traits.rainScore + 3 <= other.rainScore) items.push({ score: 4, text: locale === 'jp' ? '天候が悪い日は、相手側の方が崩れにくいです。' : 'In bad weather, the other option holds together better.' });
+    if (traits.entertainmentScore + 2 <= other.entertainmentScore) items.push({ score: 4, text: locale === 'jp' ? '高揚感や話題性は、相手側の方が作りやすいです。' : 'The other option creates more lift and talk value.' });
+    if (traits.isNature) items.push({ score: 2.5, text: locale === 'jp' ? '雨や夜だと魅力が少し落ちやすいです。' : 'Can lose some impact in rain or after dark.' });
+    if (traits.isCafe) items.push({ score: 2.5, text: locale === 'jp' ? '長居しないと良さを取り切りにくいです。' : 'Harder to fully read if you only stop briefly.' });
+    if (traits.isShopping) items.push({ score: 2.5, text: locale === 'jp' ? '静けさを重視する日には少し合いにくいです。' : 'Less suited to a quieter, slower mood.' });
+    if (traits.isShrine) items.push({ score: 2.5, text: locale === 'jp' ? 'にぎやかな会話や回遊には少し振れにくいです。' : 'Less suited to louder, more social circulation.' });
+    if (traits.isRestaurant) items.push({ score: 2.2, text: locale === 'jp' ? '短時間だけだと良さを取り切りにくいです。' : 'Harder to unlock in a very short stop.' });
+
+    return Array.from(new Map(items.sort((a, b) => b.score - a.score).map((item) => [item.text, item])).values()).slice(0, 3).map((item) => item.text);
   };
 
   return {
     shared,
-    leftPros: prosFor(left, leftTraits),
-    leftCons: consFor(leftTraits),
-    rightPros: prosFor(right, rightTraits),
-    rightCons: consFor(rightTraits),
+    leftPros: describePros(left, leftTraits, rightTraits),
+    leftCons: describeCons(left, leftTraits, rightTraits),
+    rightPros: describePros(right, rightTraits, leftTraits),
+    rightCons: describeCons(right, rightTraits, leftTraits),
   };
 };
 
