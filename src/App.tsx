@@ -156,11 +156,22 @@ function parseUrlList(raw?: string | null): string[] {
     .filter(Boolean);
 }
 
-function normalizeYouTubeUrlList(raw?: string | null): string[] {
+function isLikelyVideoUrl(url?: string | null): boolean {
+  const value = (url || '').trim().toLowerCase();
+  if (!value) return false;
+  if (extractYouTubeVideoId(value)) return true;
+  return /\.(mp4|m4v|mov|webm|ogg)(\?|$)/i.test(value) || value.startsWith('data:video/');
+}
+
+function normalizeStoredVideoUrlList(raw?: string | null): string[] {
   return parseUrlList(raw)
     .map((value) => {
-      const videoId = extractYouTubeVideoId(value);
-      return videoId ? `https://www.youtube.com/watch?v=${videoId}` : null;
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const videoId = extractYouTubeVideoId(trimmed);
+      if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+      if (isLikelyVideoUrl(trimmed)) return trimmed;
+      return null;
     })
     .filter((value): value is string => !!value);
 }
@@ -217,36 +228,59 @@ function getYouTubeEmbedUrl(value?: string | null): string | null {
 
 function VideoEmbed({ url, title }: { url: string; title: string }) {
   const youtubeEmbedUrl = getYouTubeEmbedUrl(url);
+  const isDirectVideo = isLikelyVideoUrl(url) && !youtubeEmbedUrl;
 
-  if (!youtubeEmbedUrl) {
+  if (isDirectVideo) {
     return (
-      <div className="w-full h-full bg-stone-950 text-white flex flex-col items-center justify-center gap-3 px-6 text-center">
-        <Play className="w-10 h-10 text-white/80" />
-        <div className="space-y-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/60">MILZ VIDEO</p>
-          <p className="text-sm font-semibold text-white/90">YouTube URL only</p>
-          <p className="text-xs text-white/60">Please register a YouTube Shorts or YouTube video link.</p>
+      <video
+        src={url}
+        title={title}
+        className="w-full h-full object-cover bg-black"
+        controls
+        playsInline
+        preload="metadata"
+      />
+    );
+  }
+
+  if (youtubeEmbedUrl) {
+    return (
+      <div className="w-full h-full bg-stone-950 text-white flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <Video className="w-10 h-10 text-white/75" />
+        <div className="space-y-1.5 max-w-[18rem]">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/50">MILZ VIDEO</p>
+          <p className="text-sm font-semibold text-white/90">Legacy YouTube clip</p>
+          <p className="text-xs leading-relaxed text-white/60">Upload MP4 or MOV into MILZ for direct playback. Existing YouTube clips can still open in a new tab.</p>
         </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-[0.2em] text-white hover:border-white/45 hover:bg-white/5 transition-all"
+        >
+          <ExternalLink className="w-4 h-4" />
+          Open YouTube
+        </a>
       </div>
     );
   }
 
   return (
-    <iframe
-      src={youtubeEmbedUrl}
-      title={title}
-      className="w-full h-full"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-      referrerPolicy="strict-origin-when-cross-origin"
-      allowFullScreen
-    />
+    <div className="w-full h-full bg-stone-950 text-white flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <Play className="w-10 h-10 text-white/80" />
+      <div className="space-y-1">
+        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/60">MILZ VIDEO</p>
+        <p className="text-sm font-semibold text-white/90">Video unavailable</p>
+        <p className="text-xs text-white/60">Register an uploaded MP4 or MOV video to play it inside MILZ.</p>
+      </div>
+    </div>
   );
 }
 
 function inferMediaTypeFromUrl(url?: string | null): 'image' | 'video' {
   const value = (url || '').toLowerCase();
   if (!value) return 'image';
-  if (extractYouTubeVideoId(value)) {
+  if (extractYouTubeVideoId(value) || isLikelyVideoUrl(value)) {
     return 'video';
   }
   return 'image';
@@ -472,7 +506,8 @@ interface ShortFeedItem {
   lat: number;
   lng: number;
   url: string;
-  embedUrl: string;
+  playbackType: 'direct' | 'youtube';
+  embedUrl?: string;
   imageUrl?: string;
   address?: string;
   hours?: string;
@@ -2072,6 +2107,10 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [placeEditorVideosText, setPlaceEditorVideosText] = useState('');
+  const ffmpegRef = useRef<any>(null);
+  const ffmpegHelpersRef = useRef<{ fetchFile: (file: File) => Promise<Uint8Array>; toBlobURL: (url: string, mimeType: string) => Promise<string>; } | null>(null);
+  const ffmpegLoadingRef = useRef<Promise<any> | null>(null);
   const isFetchingProfileRef = useRef(false);
 
   const mapRef = useRef<MapNavigator | null>(null);
@@ -2109,8 +2148,8 @@ export default function App() {
         detailedDescriptionPlaceholder: '補足情報や背景など...',
         galleryPhotos: 'ギャラリー写真（URLをカンマ区切り）',
         galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
-        videos: 'YouTube動画URL（1行ずつ）',
-        videosPlaceholder: 'https://youtube.com/shorts/...',
+        videos: 'ショート動画（MOV/MP4をドロップまたはURLを1行ずつ）',
+        videosPlaceholder: 'MOV / MP4 をドロップ、または https://... を入力',
         pdfs: 'PDF資料（name|url をカンマ区切り）',
         pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
         publish: 'スポットを公開',
@@ -2148,8 +2187,8 @@ export default function App() {
         detailedDescriptionPlaceholder: 'Additional background info...',
         galleryPhotos: 'Gallery Photos (Comma separated URLs)',
         galleryPhotosPlaceholder: 'https://url1.com, https://url2.com...',
-        videos: 'YouTube video URLs (one per line)',
-        videosPlaceholder: 'https://youtube.com/shorts/...',
+        videos: 'Short videos (drop MOV/MP4 or paste URLs)',
+        videosPlaceholder: 'Drop MOV / MP4 files or paste https://... one per line',
         pdfs: 'PDF Files (name|url, comma separated)',
         pdfsPlaceholder: 'Menu|https://example.com/menu.pdf',
         publish: 'Publish Spot',
@@ -3047,11 +3086,114 @@ export default function App() {
     }
   };
 
+  const loadFfmpeg = React.useCallback(async () => {
+    if (ffmpegRef.current && ffmpegHelpersRef.current) {
+      return { ffmpeg: ffmpegRef.current, ...ffmpegHelpersRef.current };
+    }
+
+    if (!ffmpegLoadingRef.current) {
+      ffmpegLoadingRef.current = (async () => {
+        const [{ FFmpeg }, { fetchFile, toBlobURL }] = await Promise.all([
+          import('@ffmpeg/ffmpeg'),
+          import('@ffmpeg/util'),
+        ]);
+
+        const ffmpeg = new FFmpeg();
+        const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
+        });
+
+        ffmpegRef.current = ffmpeg;
+        ffmpegHelpersRef.current = { fetchFile, toBlobURL };
+        return { ffmpeg, fetchFile, toBlobURL };
+      })().catch((error) => {
+        ffmpegLoadingRef.current = null;
+        throw error;
+      });
+    }
+
+    return ffmpegLoadingRef.current;
+  }, []);
+
+  const convertVideoFileToMp4 = React.useCallback(async (file: File) => {
+    const filename = file.name || 'video';
+    const isMp4 = file.type === 'video/mp4' || filename.toLowerCase().endsWith('.mp4');
+    if (isMp4) return file;
+
+    const { ffmpeg, fetchFile } = await loadFfmpeg();
+    const extension = filename.includes('.') ? `.${filename.split('.').pop()?.toLowerCase()}` : '.mov';
+    const inputName = `input-${crypto.randomUUID()}${extension}`;
+    const outputName = `output-${crypto.randomUUID()}.mp4`;
+
+    try {
+      await ffmpeg.writeFile(inputName, await fetchFile(file));
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '24',
+        '-movflags', '+faststart',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        outputName,
+      ]);
+      const data = await ffmpeg.readFile(outputName);
+      const uint8 = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
+      const convertedName = filename.replace(/\.[^.]+$/, '') + '.mp4';
+      return new File([uint8], convertedName, { type: 'video/mp4' });
+    } finally {
+      try { await ffmpeg.deleteFile(inputName); } catch {}
+      try { await ffmpeg.deleteFile(outputName); } catch {}
+    }
+  }, [loadFfmpeg]);
+
+  const uploadVideoFilesToR2 = React.useCallback(async (files: File[]) => {
+    const uploadedUrls: string[] = [];
+    for (const file of files) {
+      const preparedFile = await convertVideoFileToMp4(file);
+      const uploadedUrl = await uploadToR2(preparedFile);
+      if (uploadedUrl) uploadedUrls.push(uploadedUrl);
+    }
+    return uploadedUrls;
+  }, [convertVideoFileToMp4]);
+
+  const handlePlaceVideoFilesDrop = async (files: File[]) => {
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const uploadedUrls = await uploadVideoFilesToR2(files);
+      if (uploadedUrls.length === 0) {
+        showToast(locale === 'jp' ? '動画のアップロードに失敗しました。' : 'Video upload failed.', 'error');
+        return;
+      }
+      setPlaceEditorVideosText((prev) => {
+        const next = normalizeStoredVideoUrlList([prev, ...uploadedUrls].filter(Boolean).join('\n'));
+        return next.join('\n');
+      });
+      showToast(
+        locale === 'jp'
+          ? `動画を${uploadedUrls.length}件アップロードしました。MOVは自動でMP4に変換されています。`
+          : `Uploaded ${uploadedUrls.length} video(s). MOV files were converted to MP4 automatically.`,
+        'success'
+      );
+    } catch (error: any) {
+      showToast(error?.message || (locale === 'jp' ? '動画アップロードに失敗しました。' : 'Video upload failed.'), 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const closeAddModal = () => {
     setIsAdding(false);
     setNewPlacePos(null);
     setSelectedFile(null);
     setPreviewImage(null);
+    setPlaceEditorVideosText('');
     setModalAddress('');
     setEditingPlace(null);
   };
@@ -3060,6 +3202,7 @@ export default function App() {
     setEditingPlace(place);
     setNewPlacePos({ lat: place.lat, lng: place.lng });
     setPreviewImage(place.image_url || null);
+    setPlaceEditorVideosText((place.videos || []).join('\n'));
     setModalAddress(place.address || '');
     setIsAdding(true);
   };
@@ -3073,6 +3216,7 @@ export default function App() {
     setEditingPlace(null);
     setSelectedFile(null);
     setPreviewImage(null);
+    setPlaceEditorVideosText('');
     setModalAddress('');
     setNewPlacePos(null);
     setIsAdding(true);
@@ -3118,15 +3262,15 @@ export default function App() {
     try {
       const sanitizedDetailForm = {
         ...editDetailForm,
-        videos: (editDetailForm.videos || []).filter((video) => !!extractYouTubeVideoId(video)),
+        videos: normalizeStoredVideoUrlList((editDetailForm.videos || []).join('\n')),
         from_spot_items: (editDetailForm.from_spot_items || []).map((item) => {
           const mediaType = inferMediaTypeFromUrl(item.media_url);
-          const hasValidYouTube = mediaType === 'video' && !!extractYouTubeVideoId(item.media_url);
+          const hasValidVideo = mediaType === 'video' && (!!item.media_url && (isLikelyVideoUrl(item.media_url) || !!extractYouTubeVideoId(item.media_url)));
           const hasValidImage = mediaType === 'image' && (!!item.media_url && isLikelyImageUrl(item.media_url));
           return {
             ...item,
             media_type: mediaType,
-            media_url: hasValidYouTube || hasValidImage ? item.media_url : '',
+            media_url: hasValidVideo || hasValidImage ? item.media_url : '',
           };
         }),
       };
@@ -3151,14 +3295,25 @@ export default function App() {
 
   const handleFilesDrop = async (files: File[], field: 'image_url' | 'images' | 'videos' | 'pdfs') => {
     if (files.length === 0) return;
-    if (field === 'videos') {
-      showToast(locale === 'jp' ? '動画はYouTube URLのみ対応です。動画ファイルのアップロードはできません。' : 'Videos are YouTube URL only. File uploads are disabled for videos.', 'info');
-      return;
-    }
     setUploading(true);
     try {
       addLog(`handleFilesDrop: Starting upload for ${files.length} files to ${field}`);
       
+      if (field === 'videos') {
+        const uploadedUrls = await uploadVideoFilesToR2(files);
+        setEditDetailForm((prev) => ({
+          ...prev,
+          videos: normalizeStoredVideoUrlList([...(prev.videos || []), ...uploadedUrls].join('\n')),
+        }));
+        showToast(
+          locale === 'jp'
+            ? `動画を${uploadedUrls.length}件アップロードしました。MOVは自動でMP4に変換されます。`
+            : `Uploaded ${uploadedUrls.length} video(s). MOV files are converted to MP4 automatically.`,
+          'success'
+        );
+        return;
+      }
+
       const results = await Promise.allSettled(files.map(file => uploadToR2(file)));
       
       const validUrls: string[] = [];
@@ -3217,21 +3372,24 @@ export default function App() {
   const handleFromSpotMediaDrop = async (itemId: string, files: File[]) => {
     if (files.length === 0) return;
     const file = files[0];
-    if (file.type.startsWith('video/')) {
-      showToast(locale === 'jp' ? 'From the Spot の動画はYouTube URLで登録してください。動画ファイルのアップロードは無効です。' : 'For From the Spot videos, please use a YouTube URL. Video file upload is disabled.', 'info');
-      return;
-    }
+    const isVideoFile = file.type.startsWith('video/') || /\.(mov|mp4|m4v|webm)$/i.test(file.name || '');
     setUploading(true);
     try {
-      const url = await uploadToR2(file);
-      const mediaType: 'image' | 'video' = 'image';
+      const uploadedFile = isVideoFile ? await convertVideoFileToMp4(file) : file;
+      const url = await uploadToR2(uploadedFile);
+      const mediaType: 'image' | 'video' = isVideoFile ? 'video' : 'image';
       setEditDetailForm((prev) => ({
         ...prev,
         from_spot_items: (prev.from_spot_items || []).map((item) => (
           item.id === itemId ? { ...item, media_url: url, media_type: mediaType } : item
         )),
       }));
-      showToast(locale === 'jp' ? 'From the Spot の素材をアップロードしました。' : 'Uploaded media for From the Spot.', 'success');
+      showToast(
+        locale === 'jp'
+          ? (isVideoFile ? 'From the Spot の動画をアップロードしました。' : 'From the Spot の画像をアップロードしました。')
+          : (isVideoFile ? 'Uploaded a From the Spot video.' : 'Uploaded a From the Spot image.'),
+        'success'
+      );
     } catch (error: any) {
       showToast(error?.message || (locale === 'jp' ? 'アップロードに失敗しました。' : 'Upload failed.'), 'error');
     } finally {
@@ -3345,11 +3503,11 @@ export default function App() {
       const detailed_description = formData.get('detailed_description') as string || (document.querySelector('textarea[name="detailed_description"]') as HTMLTextAreaElement)?.value;
       const milz_experience = formData.get('milz_experience') as string || (document.querySelector('textarea[name="milz_experience"]') as HTMLTextAreaElement)?.value;
       const images_raw = formData.get('images') as string || (document.querySelector('textarea[name="images"]') as HTMLTextAreaElement)?.value;
-      const videos_raw = formData.get('videos') as string || (document.querySelector('textarea[name="videos"]') as HTMLTextAreaElement)?.value;
+      const videos_raw = placeEditorVideosText || formData.get('videos') as string || (document.querySelector('textarea[name="videos"]') as HTMLTextAreaElement)?.value;
       const pdfs_raw = formData.get('pdfs') as string || (document.querySelector('textarea[name="pdfs"]') as HTMLTextAreaElement)?.value;
 
       const images = parseUrlList(images_raw);
-      const videos = normalizeYouTubeUrlList(videos_raw);
+      const videos = normalizeStoredVideoUrlList(videos_raw);
       
       let pdfs = [];
       try {
@@ -4376,7 +4534,8 @@ Return ONLY valid JSON matching the schema.`;
     places.forEach((place) => {
       (place.videos || []).forEach((url, index) => {
         const embedUrl = getYouTubeEmbedUrl(url);
-        if (!embedUrl) return;
+        const directVideo = isLikelyVideoUrl(url) && !embedUrl;
+        if (!embedUrl && !directVideo) return;
         items.push({
           id: `${place.id}::${index}`,
           placeId: place.id,
@@ -4386,7 +4545,8 @@ Return ONLY valid JSON matching the schema.`;
           lat: place.lat,
           lng: place.lng,
           url,
-          embedUrl,
+          playbackType: directVideo ? 'direct' : 'youtube',
+          embedUrl: embedUrl || undefined,
           imageUrl: place.image_url,
           address: place.address || [place.municipality, place.prefecture, place.country].filter(Boolean).join(', '),
           hours: place.hours,
@@ -5613,14 +5773,36 @@ Return ONLY valid JSON matching the schema.`;
                           <div className="w-full flex justify-center">
                             <div className="w-full max-w-[270px] sm:max-w-[310px] md:max-w-[340px] xl:max-w-[390px]">
                               <div className="relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-white/10 bg-black shadow-[0_35px_100px_rgba(0,0,0,0.45)] max-h-[calc(100svh-16.5rem)] sm:max-h-[calc(100svh-15rem)] xl:max-h-[calc(100svh-8rem)] mx-auto">
-                                <iframe
-                                  src={`${item.embedUrl}&autoplay=1&mute=1&controls=1&playsinline=1&loop=1&playlist=${extractYouTubeVideoId(item.url) || ''}`}
-                                  title={`${item.placeName} short`}
-                                  className="w-full h-full"
-                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                  referrerPolicy="strict-origin-when-cross-origin"
-                                  allowFullScreen
-                                />
+                                {item.playbackType === 'direct' ? (
+                                  <video
+                                    src={item.url}
+                                    poster={item.imageUrl}
+                                    className="w-full h-full object-cover"
+                                    controls
+                                    playsInline
+                                    muted
+                                    loop
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex flex-col items-center justify-center px-6 text-center gap-4 bg-stone-950">
+                                    <Video className="w-10 h-10 text-white/70" />
+                                    <div className="space-y-2">
+                                      <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/40">Legacy YouTube</p>
+                                      <p className="text-sm font-semibold text-white/90">Open externally</p>
+                                      <p className="text-xs leading-relaxed text-white/60">For reliable in-app playback, upload MOV / MP4 into MILZ. Legacy YouTube clips open in a new tab.</p>
+                                    </div>
+                                    <a
+                                      href={item.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-[0.22em] text-white hover:border-white/45 hover:bg-white/5 transition-all"
+                                    >
+                                      <ExternalLink className="w-4 h-4" />
+                                      Open YouTube
+                                    </a>
+                                  </div>
+                                )}
                                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black via-black/70 to-transparent" />
                                 <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4 space-y-1.5">
                                   <div className="inline-flex items-center rounded-full border border-white/15 bg-black/35 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.28em] text-white/70 backdrop-blur-sm">
@@ -6582,16 +6764,29 @@ Return ONLY valid JSON matching the schema.`;
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs only</label>
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{addSpotCopy.videos}</label>
+                        <DropZone
+                          label={locale === 'jp' ? 'MOV / MP4 をドロップでアップロード' : 'Drop MOV / MP4 to upload'}
+                          onFilesDrop={handlePlaceVideoFilesDrop}
+                          isLoading={uploading}
+                          icon={Video}
+                          className="min-h-[180px]"
+                          accept="video/*,.mov,.mp4,.m4v,.webm"
+                        />
                         <textarea 
                           name="videos"
-                          rows={3}
-                          defaultValue={editingPlace?.videos?.join('\n') || ''}
-                          placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
+                          rows={4}
+                          value={placeEditorVideosText}
+                          onChange={(e) => setPlaceEditorVideosText(e.target.value)}
+                          placeholder={addSpotCopy.videosPlaceholder}
                           className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                         />
-                        <p className="px-1 text-[11px] leading-relaxed text-stone-500">MILZ stores YouTube links here. One URL per line is easiest. Non-YouTube video links are not used.</p>
+                        <p className="px-1 text-[11px] leading-relaxed text-stone-500">
+                          {locale === 'jp'
+                            ? 'MOV はブラウザ内で MP4 に変換してから R2 へ保存します。既存の YouTube URL も残せますが、MILZ内再生はアップロード動画が推奨です。'
+                            : 'MOV files are converted to MP4 in the browser before uploading to R2. Legacy YouTube URLs can stay here, but uploaded video files are recommended for in-app playback.'}
+                        </p>
                       </div>
 
                       <div className="space-y-2">
@@ -6881,7 +7076,7 @@ Return ONLY valid JSON matching the schema.`;
                               onFilesDrop={(files) => handleFilesDrop(files, 'images')}
                               isLoading={uploading}
                               className="h-full min-h-[200px]"
-                              accept="image/*"
+                              accept="image/*,video/*,.mov,.mp4,.m4v,.webm"
                             />
                           </div>
                         )}
@@ -6931,20 +7126,28 @@ Return ONLY valid JSON matching the schema.`;
                         </div>
                         <div className="space-y-6">
                           {isEditingDetail && (
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">YouTube Shorts / Video URLs only</label>
+                            <div className="space-y-4">
+                              <label className="text-[10px] font-black text-stone-400 uppercase tracking-widest px-1">{locale === 'jp' ? 'Short動画（MOV / MP4をドロップまたはURL入力）' : 'Short videos (drop MOV / MP4 or paste URLs)'}</label>
+                              <DropZone
+                                label={locale === 'jp' ? 'MOV / MP4 をドロップでアップロード' : 'Drop MOV / MP4 to upload'}
+                                onFilesDrop={(files) => handleFilesDrop(files, 'videos')}
+                                isLoading={uploading}
+                                icon={Video}
+                                className="min-h-[180px]"
+                                accept="video/*,.mov,.mp4,.m4v,.webm"
+                              />
                               <textarea
                                 value={(editDetailForm.videos || []).join('\n')}
-                                onChange={(e) => setEditDetailForm({ ...editDetailForm, videos: parseUrlList(e.target.value) })}
+                                onChange={(e) => setEditDetailForm({ ...editDetailForm, videos: normalizeStoredVideoUrlList(e.target.value) })}
                                 rows={4}
-                                placeholder={"https://www.youtube.com/shorts/VIDEO_ID\nhttps://youtu.be/VIDEO_ID"}
+                                placeholder={locale === 'jp' ? 'アップロード済みMP4 URL または既存のYouTube URLを1行ずつ' : 'Uploaded MP4 URLs or legacy YouTube URLs, one per line'}
                                 className="w-full px-6 py-4 bg-stone-50 border border-stone-200 outline-none focus:border-black transition-all font-medium resize-none"
                               />
-                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">Only YouTube Shorts or normal YouTube URLs are allowed. Other video links and file uploads are not used.</p>
+                              <p className="px-1 text-[11px] leading-relaxed text-stone-500">{locale === 'jp' ? 'MOVはアップロード時にMP4へ自動変換され、R2から直接再生されます。' : 'MOV files are converted to MP4 on upload and played directly from R2.'}</p>
                             </div>
                           )}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {((isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos) || []).filter((video) => !!extractYouTubeVideoId(video)).map((video, i) => {
+                            {((isEditingDetail ? editDetailForm.videos : selectedPlaceForDetail.videos) || []).filter((video) => isLikelyVideoUrl(video) || !!extractYouTubeVideoId(video)).map((video, i) => {
                               const youtubeEmbedUrl = getYouTubeEmbedUrl(video);
                               return (
                                 <div key={i} className="aspect-[9/16] bg-black relative group overflow-hidden rounded-[28px]">
@@ -7074,11 +7277,11 @@ Return ONLY valid JSON matching the schema.`;
                                       />
                                       <div className="grid grid-cols-1 gap-3">
                                         <DropZone
-                                          label={locale === 'jp' ? '写真をアップロード / 動画はYouTube URL' : 'Upload image / use YouTube URL for video'}
+                                          label={locale === 'jp' ? '写真 / MOV / MP4 をアップロード' : 'Upload image / MOV / MP4'}
                                           onFilesDrop={(files) => handleFromSpotMediaDrop(item.id, files)}
                                           isLoading={uploading}
                                           className="min-h-[160px]"
-                                          accept="image/*"
+                                          accept="image/*,video/*,.mov,.mp4,.m4v,.webm"
                                         />
                                         <input
                                           type="text"
@@ -7088,7 +7291,7 @@ Return ONLY valid JSON matching the schema.`;
                                             from_spot_items: (editDetailForm.from_spot_items || []).map((entry) => entry.id === item.id ? { ...entry, media_url: e.target.value, media_type: inferMediaTypeFromUrl(e.target.value) } : entry),
                                           })}
                                           className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl outline-none focus:border-black transition-all text-xs font-medium"
-                                          placeholder={locale === 'jp' ? '画像URL または YouTube URL' : 'Image URL or YouTube URL'}
+                                          placeholder={locale === 'jp' ? '画像URL / MP4 URL / 既存YouTube URL' : 'Image URL / MP4 URL / legacy YouTube URL'}
                                         />
                                       </div>
                                       <div className="flex justify-end">

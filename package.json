@@ -10,6 +10,8 @@
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "0.12.10",
+    "@ffmpeg/util": "0.12.1",
     "@google/genai": "1.48.0",
     "@supabase/supabase-js": "2.101.1",
     "@tailwindcss/vite": "4.2.2",
