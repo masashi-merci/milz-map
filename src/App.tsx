@@ -2903,23 +2903,55 @@ export default function App() {
   };
 
   const handleToggleFavorite = async (placeId: string) => {
-    if (!user) return;
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
 
     const client = getSupabase();
     if (!client) return;
+
     const existing = favorites.find(f => f.place_id === placeId);
-    if (existing) {
-      await client
-        .from('favorites')
-        .delete()
-        .eq('id', existing.id);
-    } else {
-      await client
-        .from('favorites')
-        .insert({
-          user_id: user.id,
-          place_id: placeId
-        });
+    const previousFavorites = favorites;
+
+    try {
+      if (existing) {
+        setFavorites((prev) => prev.filter((item) => item.id !== existing.id));
+
+        const { error } = await client
+          .from('favorites')
+          .delete()
+          .eq('id', existing.id)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+      } else {
+        const optimisticId = `optimistic-${placeId}-${Date.now()}`;
+        setFavorites((prev) => [
+          {
+            id: optimisticId,
+            user_id: user.id,
+            place_id: placeId,
+            created_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+
+        const { error } = await client
+          .from('favorites')
+          .insert({
+            user_id: user.id,
+            place_id: placeId,
+          });
+
+        if (error) throw error;
+      }
+
+      await fetchFavorites();
+    } catch (error) {
+      console.error('Toggle favorite error:', error);
+      setFavorites(previousFavorites);
+      showToast(locale === 'jp' ? 'お気に入りの保存に失敗しました。' : 'Failed to update favorites.', 'error');
     }
   };
 
