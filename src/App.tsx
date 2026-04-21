@@ -1501,6 +1501,7 @@ export default function App() {
   const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authEmailSent, setAuthEmailSent] = useState(false);
   const [landingAuthOpen, setLandingAuthOpen] = useState(false);
 
   useEffect(() => {
@@ -2320,6 +2321,7 @@ export default function App() {
       if (!client) return;
       if (authMode === 'signup') {
         setPendingRole(selectedAuthRole);
+        setAuthEmailSent(false);
         const { error } = await client.auth.signUp({
           email,
           password,
@@ -2332,8 +2334,10 @@ export default function App() {
           },
         });
         if (error) throw error;
+        setAuthEmailSent(true);
         showToast(locale === 'jp' ? '確認メールを送信しました。メールをご確認ください。' : 'Check your email for confirmation!', 'info');
       } else {
+        setAuthEmailSent(false);
         const { error } = await client.auth.signInWithPassword({
           email,
           password,
@@ -2346,6 +2350,7 @@ export default function App() {
         msg = 'Failed to fetch (Supabaseへの接続に失敗しました。URL設定やプロジェクトの状態を確認してください)';
       }
       setAuthError(msg);
+      setAuthEmailSent(false);
       setPendingRole(null);
     }
   };
@@ -3589,6 +3594,8 @@ export default function App() {
         showPassword={showPassword}
         setShowPassword={setShowPassword}
         authError={authError}
+        authEmailSent={authEmailSent}
+        clearAuthEmailSent={() => setAuthEmailSent(false)}
         handleEmailAuth={handleEmailAuth}
       />
     );

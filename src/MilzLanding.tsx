@@ -18,6 +18,8 @@ interface MilzLandingProps {
   showPassword: boolean;
   setShowPassword: (value: boolean) => void;
   authError: string;
+  authEmailSent: boolean;
+  clearAuthEmailSent: () => void;
   handleEmailAuth: (e: React.FormEvent) => void | Promise<void>;
 }
 
@@ -35,6 +37,8 @@ export default function MilzLanding({
   showPassword,
   setShowPassword,
   authError,
+  authEmailSent,
+  clearAuthEmailSent,
   handleEmailAuth,
 }: MilzLandingProps) {
   const [lang, setLang] = useState<'jp' | 'en'>(() => {
@@ -413,77 +417,95 @@ export default function MilzLanding({
               </button>
             </div>
             <div className="p-8 md:p-10 space-y-8">
-              <div>
-                <div className="font-display text-[56px] leading-[0.9] mb-2">
-                  {authMode === 'signin'
-                    ? (isJP ? 'おかえり。' : 'WELCOME BACK.')
-                    : (isJP ? 'はじめまして。' : 'HELLO.')}
-                </div>
-                <div className="text-[13px] text-[var(--gray-500)]">
-                  {isJP ? 'メールとパスワードだけで。' : 'Just an email and a password.'}
-                </div>
-              </div>
-
-              <div className="flex border border-black rounded-full overflow-hidden text-[11px] font-bold tracking-[0.18em] uppercase">
-                <button
-                  type="button"
-                  onClick={() => setSelectedAuthRole('user')}
-                  className={`flex-1 py-3 ${selectedAuthRole === 'user' ? 'bg-black text-white' : 'bg-white text-black'}`}
-                >
-                  <span className="inline-flex items-center justify-center gap-2"><UserIcon size={14} /> User</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedAuthRole('admin')}
-                  className={`flex-1 py-3 ${selectedAuthRole === 'admin' ? 'bg-black text-white' : 'bg-white text-black'}`}
-                >
-                  <span className="inline-flex items-center justify-center gap-2"><ShieldCheck size={14} /> Admin</span>
-                </button>
-              </div>
-
-              <form onSubmit={handleEmailAuth} className="space-y-6">
-                <div>
-                  <label className="label block mb-1">{isJP ? 'メール' : 'Email'}</label>
-                  <div className="relative">
-                    <Mail className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--gray-500)]" size={18} />
-                    <input className="input pl-7" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              {authEmailSent && authMode === 'signup' ? (
+                <>
+                  <div>
+                    <div className="font-display text-[56px] leading-[0.9] mb-3">
+                      {isJP ? 'SENT.' : 'SENT.'}
+                    </div>
+                    <div className="text-[15px] leading-[1.9] text-[var(--gray-700)]">
+                      {isJP
+                        ? '認証メールを送信しました。メール内のリンクから登録を完了してください。'
+                        : 'A confirmation email has been sent. Complete your signup from the link in your inbox.'}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label className="label block mb-1">{isJP ? 'パスワード' : 'Password'}</label>
-                  <div className="relative">
-                    <Lock className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--gray-500)]" size={18} />
-                    <input className="input pl-7 pr-8" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
-                    <button type="button" className="absolute right-0 top-1/2 -translate-y-1/2 text-[var(--gray-500)] hover:text-black" onClick={() => setShowPassword(!showPassword)}>
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+
+                  <div className="border border-[var(--gray-200)] rounded-[24px] p-5 bg-[var(--gray-100)] text-[13px] text-[var(--gray-600)]">
+                    <div className="label mb-2">{isJP ? '送信先' : 'Sent to'}</div>
+                    <div className="text-[16px] text-black break-all">{email}</div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    <button className="btn w-full justify-center" onClick={() => { clearAuthEmailSent(); setAuthMode('signin'); }}>
+                      {isJP ? 'ログイン画面へ' : 'Go to sign in'}
+                      <ArrowRight size={14} />
+                    </button>
+                    <button className="text-[12px] text-[var(--gray-500)] hover:text-black inline-flex items-center justify-center gap-1.5" onClick={() => clearAuthEmailSent()}>
+                      {isJP ? '別のメールアドレスで登録する' : 'Use a different email'}
                     </button>
                   </div>
-                </div>
-                {authError && <div className="text-xs text-red-700">{authError}</div>}
-                <button className="btn w-full justify-center">
-                  {authMode === 'signin' ? (isJP ? 'ログイン' : 'SIGN IN') : (isJP ? '登録する' : 'CREATE ACCOUNT')}
-                  <ArrowRight size={14} />
-                </button>
-              </form>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="font-display text-[56px] leading-[0.9] mb-2">
+                      {authMode === 'signin'
+                        ? (isJP ? 'おかえり。' : 'WELCOME BACK.')
+                        : (isJP ? 'はじめまして。' : 'HELLO.')}
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 gap-3 text-[11px] text-[var(--gray-500)] border-t border-[var(--gray-200)] pt-5">
-                <div className="flex items-start gap-2">
-                  <MapPin size={14} className="mt-0.5 shrink-0" />
-                  <p>{isJP ? 'ログイン後は、今までのMILZ本体へそのまま遷移します。' : 'After sign in, the existing MILZ app opens as it is.'}</p>
-                </div>
-                <div className="flex items-start gap-2">
-                  <ShieldCheck size={14} className="mt-0.5 shrink-0" />
-                  <p>{isJP ? 'Admin と User は同じ入口で、権限だけを切り替えます。' : 'Admin and User share one entrance. Only the role changes.'}</p>
-                </div>
-              </div>
+                  <div className="flex border border-black rounded-full overflow-hidden text-[11px] font-bold tracking-[0.18em] uppercase">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAuthRole('user')}
+                      className={`flex-1 py-3 ${selectedAuthRole === 'user' ? 'bg-black text-white' : 'bg-white text-black'}`}
+                    >
+                      <span className="inline-flex items-center justify-center gap-2"><UserIcon size={14} /> User</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAuthRole('admin')}
+                      className={`flex-1 py-3 ${selectedAuthRole === 'admin' ? 'bg-black text-white' : 'bg-white text-black'}`}
+                    >
+                      <span className="inline-flex items-center justify-center gap-2"><ShieldCheck size={14} /> Admin</span>
+                    </button>
+                  </div>
 
-              <div className="pt-2 border-t border-[var(--gray-200)] text-center">
-                <button className="text-[12px] text-[var(--gray-500)] hover:text-black inline-flex items-center gap-1.5" onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')}>
-                  {authMode === 'signin'
-                    ? <>{isJP ? '新しく登録する' : 'Create an account'} <Plus size={12} /></>
-                    : <>{isJP ? 'ログインに戻る' : 'Back to sign in'} <ArrowRight size={12} /></>}
-                </button>
-              </div>
+                  <form onSubmit={handleEmailAuth} className="space-y-6">
+                    <div>
+                      <label className="label block mb-1">{isJP ? 'メール' : 'Email'}</label>
+                      <div className="relative">
+                        <Mail className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--gray-500)]" size={18} />
+                        <input className="input pl-7" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label block mb-1">{isJP ? 'パスワード' : 'Password'}</label>
+                      <div className="relative">
+                        <Lock className="absolute left-0 top-1/2 -translate-y-1/2 text-[var(--gray-500)]" size={18} />
+                        <input className="input pl-7 pr-8" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+                        <button type="button" className="absolute right-0 top-1/2 -translate-y-1/2 text-[var(--gray-500)] hover:text-black" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+                    {authError && <div className="text-xs text-red-700">{authError}</div>}
+                    <button className="btn w-full justify-center">
+                      {authMode === 'signin' ? (isJP ? 'ログイン' : 'SIGN IN') : (isJP ? '登録する' : 'CREATE ACCOUNT')}
+                      <ArrowRight size={14} />
+                    </button>
+                  </form>
+
+                  <div className="pt-2 border-t border-[var(--gray-200)] text-center">
+                    <button className="text-[12px] text-[var(--gray-500)] hover:text-black inline-flex items-center gap-1.5" onClick={() => { clearAuthEmailSent(); setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); }}>
+                      {authMode === 'signin'
+                        ? <>{isJP ? '新しく登録する' : 'Create an account'} <Plus size={12} /></>
+                        : <>{isJP ? 'ログインに戻る' : 'Back to sign in'} <ArrowRight size={12} /></>}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
